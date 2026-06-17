@@ -158,8 +158,9 @@ const ALLOWED_SLEEP_CORRECTION_LABEL_TYPES: [&str; 5] = [
 
 #[derive(Debug)]
 pub struct GrapeStore {
-    conn: Connection,
+    pub conn: Connection,
 }
+
 
 #[derive(Debug, Clone)]
 pub struct RawEvidenceInput<'a> {

@@ -2,6 +2,8 @@
 name = "grape-core"
 version = "0.1.0"
 edition = "2024"
+
+
 rust-version = "1.94"
 description = "Rust protocol, evidence, validation, and local calculation core for Grape."
 license = "UNLICENSED"
@@ -135,6 +137,11 @@ path = "src/bin/grape-property-test-suite.rs"
 name = "grape-perf-budget"
 path = "src/bin/grape-perf-budget.rs"
 
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+
 [dependencies]
 crc32fast = "1.4"
 hex = "0.4"
@@ -145,6 +152,12 @@ sha2 = "0.10"
 thiserror = "2.0"
 tungstenite = "0.28"
 zip = "0.6"
+uniffi = { version = "0.29", features = ["cli"] }
+
+[build-dependencies]
+uniffi = { version = "0.29", features = ["build"] }
+
+
 
 [dev-dependencies]
 tempfile = "3.13"

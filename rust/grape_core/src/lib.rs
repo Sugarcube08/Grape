@@ -1,4 +1,7 @@
 #![recursion_limit = "256"]
+#![allow(unsafe_attr_outside_unsafe)]
+
+
 
 pub mod activity_candidates;
 pub mod activity_identity;
@@ -40,5 +43,12 @@ pub mod timeline;
 pub mod tool_args;
 pub mod ui_coverage;
 pub mod validation_labels;
+pub mod uniffi_api;
 
 pub use error::{GrapeError, GrapeResult};
+pub use uniffi_api::*;
+
+uniffi::include_scaffolding!("grape");
+
+
+
