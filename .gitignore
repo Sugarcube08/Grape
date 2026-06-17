@@ -1,0 +1,47 @@
+# Reference reverse engineered repository
+ref/
+*.txt
+
+# Android
+.gradle/
+.idea/
+local.properties
+captures/
+*.iml
+
+# Kotlin
+build/
+out/
+
+# Rust
+target/
+Cargo.lock
+
+# UniFFI generated
+*.udl
+bindings/
+
+# SQLite
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+
+# macOS
+.DS_Store
+
+# Linux
+.directory
+
+# VSCode
+.vscode/
+
+# Temporary
+tmp/
+temp/
+
+# Secrets
+.env
+.env.*

@@ -1,0 +1,157 @@
+[package]
+name = "grape-core"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94"
+description = "Rust protocol, evidence, validation, and local calculation core for Grape."
+license = "UNLICENSED"
+
+[lib]
+name = "grape_core"
+path = "src/lib.rs"
+crate-type = ["rlib", "staticlib", "cdylib"]
+
+[[bin]]
+name = "grape-fixture-index"
+path = "src/bin/grape-fixture-index.rs"
+
+[[bin]]
+name = "grape-parser-fixture-runner"
+path = "src/bin/grape-parser-fixture-runner.rs"
+
+[[bin]]
+name = "grape-capture-import"
+path = "src/bin/grape-capture-import.rs"
+
+[[bin]]
+name = "grape-capture-sqlite-import"
+path = "src/bin/grape-capture-sqlite-import.rs"
+
+[[bin]]
+name = "grape-capture-sanitize"
+path = "src/bin/grape-capture-sanitize.rs"
+
+[[bin]]
+name = "grape-capture-correlation"
+path = "src/bin/grape-capture-correlation.rs"
+
+[[bin]]
+name = "grape-capture-arrival-plan"
+path = "src/bin/grape-capture-arrival-plan.rs"
+
+[[bin]]
+name = "grape-metric-input-readiness"
+path = "src/bin/grape-metric-input-readiness.rs"
+
+[[bin]]
+name = "grape-metric-feature-report"
+path = "src/bin/grape-metric-feature-report.rs"
+
+[[bin]]
+name = "grape-local-health-validation-suite"
+path = "src/bin/grape-local-health-validation-suite.rs"
+
+[[bin]]
+name = "grape-command-validator"
+path = "src/bin/grape-command-validator.rs"
+
+[[bin]]
+name = "grape-command-capture-plan"
+path = "src/bin/grape-command-capture-plan.rs"
+
+[[bin]]
+name = "grape-reference-algo-runner"
+path = "src/bin/grape-reference-algo-runner.rs"
+
+[[bin]]
+name = "grape-algo-benchmark"
+path = "src/bin/grape-algo-benchmark.rs"
+
+[[bin]]
+name = "grape-calibration-evaluator"
+path = "src/bin/grape-calibration-evaluator.rs"
+
+[[bin]]
+name = "grape-health-sync-dry-run"
+path = "src/bin/grape-health-sync-dry-run.rs"
+
+[[bin]]
+name = "grape-historical-sync-validator"
+path = "src/bin/grape-historical-sync-validator.rs"
+
+[[bin]]
+name = "grape-sleep-v1-release-gate"
+path = "src/bin/grape-sleep-v1-release-gate.rs"
+
+[[bin]]
+name = "grape-sleep-v1-evidence-folder"
+path = "src/bin/grape-sleep-v1-evidence-folder.rs"
+
+[[bin]]
+name = "grape-sleep-v1-stability-validator"
+path = "src/bin/grape-sleep-v1-stability-validator.rs"
+
+[[bin]]
+name = "grape-sleep-window-validator"
+path = "src/bin/grape-sleep-window-validator.rs"
+
+[[bin]]
+name = "grape-sleep-stage-label-validator"
+path = "src/bin/grape-sleep-stage-label-validator.rs"
+
+[[bin]]
+name = "grape-storage-check"
+path = "src/bin/grape-storage-check.rs"
+
+[[bin]]
+name = "grape-raw-export"
+path = "src/bin/grape-raw-export.rs"
+
+[[bin]]
+name = "grape-export-validator"
+path = "src/bin/grape-export-validator.rs"
+
+[[bin]]
+name = "grape-debug-ws-contract"
+path = "src/bin/grape-debug-ws-contract.rs"
+
+[[bin]]
+name = "grape-debug-ws-serve"
+path = "src/bin/grape-debug-ws-serve.rs"
+
+[[bin]]
+name = "grape-ui-coverage-audit"
+path = "src/bin/grape-ui-coverage-audit.rs"
+
+[[bin]]
+name = "grape-privacy-lint"
+path = "src/bin/grape-privacy-lint.rs"
+
+[[bin]]
+name = "grape-property-test-suite"
+path = "src/bin/grape-property-test-suite.rs"
+
+[[bin]]
+name = "grape-perf-budget"
+path = "src/bin/grape-perf-budget.rs"
+
+[dependencies]
+crc32fast = "1.4"
+hex = "0.4"
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+thiserror = "2.0"
+tungstenite = "0.28"
+zip = "0.6"
+
+[dev-dependencies]
+tempfile = "3.13"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
