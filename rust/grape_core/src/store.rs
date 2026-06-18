@@ -891,10 +891,29 @@ pub struct DebugEventRow {
 impl GrapeStore {
     pub fn open(path: &Path) -> GrapeResult<Self> {
         let conn = Connection::open(path)?;
+        
+        // Database Hardening
+        conn.execute_batch(
+            "PRAGMA journal_mode = WAL;\
+             PRAGMA busy_timeout = 5000;\
+             PRAGMA foreign_keys = ON;\
+             PRAGMA auto_vacuum = INCREMENTAL;"
+        )?;
+        
+        // Integrity check at startup
+        let integrity: String = conn.query_row("PRAGMA integrity_check(100);", [], |row| row.get(0))?;
+        if integrity != "ok" {
+            return Err(GrapeError::message(format!("SQLite integrity check failed: {}", integrity)));
+        }
+
+        // Run vacuum at startup to optimize layout
+        let _ = conn.execute("VACUUM;", []);
+
         let store = Self { conn };
         store.migrate()?;
         Ok(store)
     }
+
 
     pub fn open_read_only(path: &Path) -> GrapeResult<Self> {
         let conn = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;

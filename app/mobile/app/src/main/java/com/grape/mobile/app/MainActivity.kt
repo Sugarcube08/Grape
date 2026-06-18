@@ -9,6 +9,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import com.grape.mobile.ble.GrapeBleManager
 import com.grape.mobile.ble.GrapeBleService
 import com.grape.mobile.navigation.AppNavigation
@@ -36,6 +37,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        installSplashScreen()
         super.onCreate(savedInstanceState)
         Timber.d("MainActivity onCreate")
 

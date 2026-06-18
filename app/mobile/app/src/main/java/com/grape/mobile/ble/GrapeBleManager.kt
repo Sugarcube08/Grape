@@ -14,6 +14,9 @@ import com.grape.mobile.repository.DeviceRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import java.util.UUID
 import timber.log.Timber
 
@@ -38,6 +41,10 @@ class GrapeBleManager(
     private var bluetoothGatt: BluetoothGatt? = null
     private var isScanning = false
     private val handler = Handler(Looper.getMainLooper())
+
+    private var commandSequence: Byte = 0
+    private val _incomingFrames = MutableSharedFlow<ByteArray>(extraBufferCapacity = 128)
+    val incomingFrames: SharedFlow<ByteArray> = _incomingFrames.asSharedFlow()
 
     private val _state = MutableStateFlow(BleState.Idle)
     val state: StateFlow<BleState> = _state.asStateFlow()
@@ -189,6 +196,7 @@ class GrapeBleManager(
                     val hex = frame.toHexString()
                     Timber.d("Whoop proprietary frame parsed: $hex")
                     repository.insertWhoopPacket(hex, currentDeviceType)
+                    _incomingFrames.tryEmit(frame)
                 }
             }
         }
@@ -266,6 +274,19 @@ class GrapeBleManager(
         characteristic.value = value
         gatt.writeCharacteristic(characteristic)
         Timber.d("Wrote to characteristic: ${characteristic.uuid} value: ${value.toHexString()}")
+    }
+
+    fun writeCommand(command: Byte, data: ByteArray) {
+        val gatt = bluetoothGatt ?: return
+        val whoopServiceUuid = if (currentDeviceType == "maverick") WHOOP_GEN4_SERVICE else WHOOP_GEN5_SERVICE
+        val whoopService = gatt.getService(whoopServiceUuid) ?: return
+        val baseUuid = whoopServiceUuid.toString()
+        val c3Uuid = UUID.fromString(baseUuid.replace("0001", "0003"))
+        val c3 = whoopService.getCharacteristic(c3Uuid) ?: return
+
+        val frame = com.grape.mobile.ffi.GrapeRustBridge.buildCommandFrame(commandSequence, command, data)
+        commandSequence = ((commandSequence + 1) % 256).toByte()
+        write(c3, frame)
     }
 
     private fun subscribeToCharacteristics(gatt: BluetoothGatt) {

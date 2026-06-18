@@ -1,12 +1,30 @@
 package com.grape.mobile.repository
 
+import android.content.Context
+import android.content.ContentValues
+import android.database.sqlite.SQLiteDatabase
+import androidx.work.*
 import com.grape.mobile.database.DatabaseHelper
 import com.grape.mobile.ffi.GrapeRustBridge
+import com.grape.mobile.ble.HistoricalSyncWorker
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.flow
 import org.json.JSONObject
 import timber.log.Timber
+
+data class HistoricalSyncProgress(
+    val sessionId: String,
+    val status: String,
+    val bytesDownloaded: Int,
+    val packetsDownloaded: Int,
+    val oldestPage: Long?,
+    val newestPage: Long?,
+    val currentPage: Long?
+)
 
 data class DeviceUiState(
     val connectionState: String = "DISCONNECTED",
@@ -66,6 +84,154 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
             Timber.d("Device uiState updated: $state")
         } catch (e: Exception) {
             Timber.e(e, "Error parsing Rust state JSON: $jsonString")
+        }
+    }
+
+    fun beginHistoricalSync(context: Context, sessionId: String) {
+        val workRequest = OneTimeWorkRequestBuilder<HistoricalSyncWorker>()
+            .setInputData(workDataOf("session_id" to sessionId))
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "historical_sync",
+            ExistingWorkPolicy.REPLACE,
+            workRequest
+        )
+    }
+
+    fun abortHistoricalSync(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork("historical_sync")
+    }
+
+    fun resumeHistoricalSync(context: Context, sessionId: String) {
+        beginHistoricalSync(context, sessionId)
+    }
+
+    fun queryHistoricalProgress(sessionId: String): Flow<HistoricalSyncProgress?> = flow {
+        while (true) {
+            emit(getHistoricalProgressFromDb(sessionId))
+            delay(500)
+        }
+    }
+
+    private fun getHistoricalProgressFromDb(sessionId: String): HistoricalSyncProgress? {
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            var status = "Idle"
+            var bytesDownloaded = 0
+            var packetsDownloaded = 0
+            db.rawQuery("SELECT status, bytes_downloaded, packets_downloaded FROM sync_sessions WHERE session_id = ?", arrayOf(sessionId)).use { cursor ->
+                if (cursor.moveToFirst()) {
+                    status = cursor.getString(0)
+                    bytesDownloaded = cursor.getInt(1)
+                    packetsDownloaded = cursor.getInt(2)
+                } else {
+                    return null
+                }
+            }
+
+            var oldestPage: Long? = null
+            var newestPage: Long? = null
+            var currentPage: Long? = null
+            db.rawQuery("SELECT checkpoint_key, checkpoint_value FROM sync_progress WHERE session_id = ?", arrayOf(sessionId)).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val key = cursor.getString(0)
+                    val value = cursor.getString(1)
+                    when (key) {
+                        "oldest_page" -> oldestPage = value.toLongOrNull()
+                        "newest_page" -> newestPage = value.toLongOrNull()
+                        "current_page" -> currentPage = value.toLongOrNull()
+                    }
+                }
+            }
+
+            return HistoricalSyncProgress(
+                sessionId, status, bytesDownloaded, packetsDownloaded, oldestPage, newestPage, currentPage
+            )
+        } catch (e: Exception) {
+            Timber.e(e, "Error querying progress from DB")
+            return null
+        } finally {
+            db?.close()
+        }
+    }
+
+    fun insertMockSleepSession(
+        startTimeUnixMs: Long,
+        endTimeUnixMs: Long,
+        remMinutes: Double,
+        deepMinutes: Double,
+        coreMinutes: Double,
+        awakeMinutes: Double
+    ) {
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            val sleepId = "mock-sleep-" + System.currentTimeMillis()
+            val cv = ContentValues().apply {
+                put("sleep_id", sleepId)
+                put("source", "Health Connect")
+                put("platform", "health_connect")
+                put("platform_record_id", "hc-" + sleepId)
+                put("start_time_unix_ms", startTimeUnixMs)
+                put("end_time_unix_ms", endTimeUnixMs)
+                put("duration_ms", endTimeUnixMs - startTimeUnixMs)
+                put("timezone", "UTC")
+                put("confidence", 0.95)
+                put("stage_summary_json", """
+                    {
+                        "minutes_by_stage": {
+                            "rem": $remMinutes,
+                            "deep": $deepMinutes,
+                            "core": $coreMinutes,
+                            "awake": $awakeMinutes
+                        }
+                    }
+                """.trimIndent())
+                put("provenance_json", "{}")
+            }
+            db.insert("external_sleep_sessions", null, cv)
+            Timber.d("Inserted mock sleep session: $sleepId")
+        } catch (e: Exception) {
+            Timber.e(e, "Error inserting mock sleep session")
+        } finally {
+            db?.close()
+        }
+    }
+
+    fun insertMockRecoveryMetric(
+        startTimeUnixMs: Long,
+        endTimeUnixMs: Long,
+        restingHr: Double,
+        hrv: Double,
+        tempDelta: Double
+    ) {
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            val metricId = "mock-metric-" + System.currentTimeMillis()
+            val cv = ContentValues().apply {
+                put("daily_metric_id", metricId)
+                put("date_key", java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.format(java.util.Date(startTimeUnixMs)))
+                put("timezone", "UTC")
+                put("start_time_unix_ms", startTimeUnixMs)
+                put("end_time_unix_ms", endTimeUnixMs)
+                put("resting_hr_bpm", restingHr)
+                put("hrv_rmssd_ms", hrv)
+                put("respiratory_rate_rpm", 15.5)
+                put("skin_temperature_delta_c", tempDelta)
+                put("source_kind", "imported")
+                put("confidence", 0.95)
+                put("provenance_json", "{}")
+            }
+            db.insert("daily_recovery_metrics", null, cv)
+            Timber.d("Inserted mock recovery metric: $metricId")
+        } catch (e: Exception) {
+            Timber.e(e, "Error inserting mock recovery metric")
+        } finally {
+            db?.close()
         }
     }
 }

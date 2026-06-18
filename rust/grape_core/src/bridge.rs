@@ -4292,7 +4292,7 @@ fn resting_heart_rate_capture_validation_bridge(
     })
 }
 
-fn sleep_v1_input_from_feature_score(
+pub(crate) fn sleep_v1_input_from_feature_score(
     store: &GrapeStore,
     sleep_input: &SleepInput,
     report: &SleepFeatureScoreReport,
@@ -4907,7 +4907,7 @@ fn external_sleep_stage_minutes_from_rows_or_summary(
     external_sleep_stage_minutes(stage_summary_json)
 }
 
-fn external_sleep_stage_minutes(stage_summary_json: &str) -> (BTreeMap<String, f64>, bool) {
+pub(crate) fn external_sleep_stage_minutes(stage_summary_json: &str) -> (std::collections::BTreeMap<String, f64>, bool) {
     let Ok(summary) = serde_json::from_str::<Value>(stage_summary_json) else {
         return (BTreeMap::new(), false);
     };

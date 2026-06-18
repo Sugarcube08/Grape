@@ -2,6 +2,7 @@ package com.grape.mobile.screens
 
 import android.bluetooth.BluetoothDevice
 import androidx.compose.animation.core.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -19,9 +20,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.grape.mobile.R
 import com.grape.mobile.ble.BleState
 import com.grape.mobile.ble.GrapeBleManager
 import com.grape.mobile.repository.DeviceRepository
@@ -72,11 +75,7 @@ fun DashboardScreen(
             } else {
                 // Main stats display
                 StatsSection(uiState)
-                
-                Spacer(modifier = Modifier.height(20.dp))
 
-                // Simulation Control Panel
-                SimulationControlPanel(repository)
             }
         }
     }
@@ -85,13 +84,24 @@ fun DashboardScreen(
 @Composable
 fun HeaderSection() {
     Column {
-        Text(
-            text = "GRAPE",
-            fontSize = 32.sp,
-            fontWeight = FontWeight.Black,
-            letterSpacing = 2.sp,
-            color = MaterialTheme.colorScheme.primary
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.ic_grape_logo),
+                contentDescription = "Grape Logo",
+                modifier = Modifier.size(36.dp)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+            Text(
+                text = "Grape",
+                fontSize = 32.sp,
+                fontWeight = FontWeight.Black,
+                letterSpacing = 1.sp,
+                color = Color.White
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
         Text(
             text = "Wearable Analytics Engine",
             fontSize = 14.sp,
@@ -190,7 +200,7 @@ fun DiscoveredDevicesSection(
                 .background(MaterialTheme.colorScheme.surface),
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterAlignment) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
                 Spacer(modifier = Modifier.height(12.dp))
                 Text("Searching for WHOOP straps...", color = Color.Gray, fontSize = 12.sp)
@@ -391,64 +401,6 @@ fun MetricsMiniCard(title: String, value: String, modifier: Modifier = Modifier)
                 fontWeight = FontWeight.ExtraBold,
                 color = Color.White
             )
-        }
-    }
-}
-
-@Composable
-fun SimulationControlPanel(repository: DeviceRepository) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp)
-        ) {
-            Text(
-                text = "PIPELINE SIMULATION CONTROL",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Gray
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Button(
-                    onClick = {
-                        // Simulate active state
-                        repository.updateConnectionState("CONNECTED")
-                        repository.recordHeartRate((60..120).random())
-                        repository.recordBattery((50..100).random())
-                    },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("Simulate Live", fontSize = 10.sp)
-                }
-
-                Button(
-                    onClick = {
-                        // Feed a mock WHOOP 5.0 notification hex packet
-                        // Header: AA 00 05 00 <CRC32> Payload: packet_type=40 (Realtime data)
-                        val sampleHex = "aa000500123456784011223344"
-                        repository.insertWhoopPacket(sampleHex, "puffin")
-                    },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(8.dp)
-                ) {
-                    Text("Feed Hex Frame", fontSize = 10.sp)
-                }
-
-                IconButton(
-                    onClick = { repository.refreshState() },
-                    modifier = Modifier.background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(8.dp))
-                ) {
-                    Icon(imageVector = Icons.Default.Refresh, contentDescription = "Refresh")
-                }
-            }
         }
     }
 }

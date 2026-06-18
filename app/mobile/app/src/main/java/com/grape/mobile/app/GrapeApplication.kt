@@ -13,6 +13,7 @@ import timber.log.Timber
 
 class GrapeApplication : Application() {
     override fun onCreate() {
+        System.setProperty("uniffi.component.grape.libraryOverride", "grape_core")
         super.onCreate()
         
         Timber.plant(Timber.DebugTree())

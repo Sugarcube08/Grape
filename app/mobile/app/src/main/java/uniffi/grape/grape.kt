@@ -723,6 +723,20 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 // For large crates we prevent `MethodTooLargeException` (see #2340)
 // N.B. the name of the extension is very misleading, since it is 
 // rather `InterfaceTooLargeException`, caused by too many methods 
@@ -738,9 +752,15 @@ internal interface UniffiForeignFutureCompleteVoid : com.sun.jna.Callback {
 // when the library is loaded.
 internal interface IntegrityCheckingUniffiLib : Library {
     // Integrity check functions only
-    fun uniffi_grape_core_checksum_func_compute_recovery(
+    fun uniffi_grape_core_checksum_func_build_command_frame(
+): Short
+fun uniffi_grape_core_checksum_func_compute_recovery(
+): Short
+fun uniffi_grape_core_checksum_func_compute_recovery_v0(
 ): Short
 fun uniffi_grape_core_checksum_func_compute_sleep(
+): Short
+fun uniffi_grape_core_checksum_func_compute_sleep_v1(
 ): Short
 fun uniffi_grape_core_checksum_func_compute_strain(
 ): Short
@@ -749,6 +769,14 @@ fun uniffi_grape_core_checksum_func_compute_stress(
 fun uniffi_grape_core_checksum_func_get_device_state(
 ): Short
 fun uniffi_grape_core_checksum_func_insert_packet(
+): Short
+fun uniffi_grape_core_checksum_func_sleep_debt(
+): Short
+fun uniffi_grape_core_checksum_func_sleep_efficiency(
+): Short
+fun uniffi_grape_core_checksum_func_sleep_stage_distribution(
+): Short
+fun uniffi_grape_core_checksum_func_sleep_summary(
 ): Short
 fun ffi_grape_core_uniffi_contract_version(
 ): Int
@@ -795,9 +823,15 @@ internal interface UniffiLib : Library {
     }
 
     // FFI functions
-    fun uniffi_grape_core_fn_func_compute_recovery(`databasePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+    fun uniffi_grape_core_fn_func_build_command_frame(`sequence`: Byte,`command`: Byte,`data`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_grape_core_fn_func_compute_recovery(`databasePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_grape_core_fn_func_compute_recovery_v0(`databasePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_grape_core_fn_func_compute_sleep(`databasePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_grape_core_fn_func_compute_sleep_v1(`databasePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_grape_core_fn_func_compute_strain(`databasePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -806,6 +840,14 @@ fun uniffi_grape_core_fn_func_compute_stress(`databasePath`: RustBuffer.ByValue,
 fun uniffi_grape_core_fn_func_get_device_state(`databasePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun uniffi_grape_core_fn_func_insert_packet(`databasePath`: RustBuffer.ByValue,`frameHex`: RustBuffer.ByValue,`deviceType`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_grape_core_fn_func_sleep_debt(`databasePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Double
+fun uniffi_grape_core_fn_func_sleep_efficiency(`databasePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): Double
+fun uniffi_grape_core_fn_func_sleep_stage_distribution(`databasePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
+fun uniffi_grape_core_fn_func_sleep_summary(`databasePath`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 fun ffi_grape_core_rustbuffer_alloc(`size`: Long,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
@@ -933,10 +975,19 @@ private fun uniffiCheckContractApiVersion(lib: IntegrityCheckingUniffiLib) {
 }
 @Suppress("UNUSED_PARAMETER")
 private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
+    if (lib.uniffi_grape_core_checksum_func_build_command_frame() != 16374.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_grape_core_checksum_func_compute_recovery() != 36665.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
+    if (lib.uniffi_grape_core_checksum_func_compute_recovery_v0() != 31434.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
     if (lib.uniffi_grape_core_checksum_func_compute_sleep() != 62393.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_grape_core_checksum_func_compute_sleep_v1() != 59246.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_grape_core_checksum_func_compute_strain() != 1510.toShort()) {
@@ -949,6 +1000,18 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_grape_core_checksum_func_insert_packet() != 61985.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_grape_core_checksum_func_sleep_debt() != 23404.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_grape_core_checksum_func_sleep_efficiency() != 42486.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_grape_core_checksum_func_sleep_stage_distribution() != 7841.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_grape_core_checksum_func_sleep_summary() != 6375.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
 }
@@ -1033,6 +1096,75 @@ object NoPointer
 /**
  * @suppress
  */
+public object FfiConverterUByte: FfiConverter<UByte, Byte> {
+    override fun lift(value: Byte): UByte {
+        return value.toUByte()
+    }
+
+    override fun read(buf: ByteBuffer): UByte {
+        return lift(buf.get())
+    }
+
+    override fun lower(value: UByte): Byte {
+        return value.toByte()
+    }
+
+    override fun allocationSize(value: UByte) = 1UL
+
+    override fun write(value: UByte, buf: ByteBuffer) {
+        buf.put(value.toByte())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterUInt: FfiConverter<UInt, Int> {
+    override fun lift(value: Int): UInt {
+        return value.toUInt()
+    }
+
+    override fun read(buf: ByteBuffer): UInt {
+        return lift(buf.getInt())
+    }
+
+    override fun lower(value: UInt): Int {
+        return value.toInt()
+    }
+
+    override fun allocationSize(value: UInt) = 4UL
+
+    override fun write(value: UInt, buf: ByteBuffer) {
+        buf.putInt(value.toInt())
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterDouble: FfiConverter<Double, Double> {
+    override fun lift(value: Double): Double {
+        return value
+    }
+
+    override fun read(buf: ByteBuffer): Double {
+        return buf.getDouble()
+    }
+
+    override fun lower(value: Double): Double {
+        return value
+    }
+
+    override fun allocationSize(value: Double) = 8UL
+
+    override fun write(value: Double, buf: ByteBuffer) {
+        buf.putDouble(value)
+    }
+}
+
+/**
+ * @suppress
+ */
 public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
     // Note: we don't inherit from FfiConverterRustBuffer, because we use a
     // special encoding when lowering/lifting.  We can use `RustBuffer.len` to
@@ -1085,10 +1217,228 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
         buf.putInt(byteBuf.limit())
         buf.put(byteBuf)
     }
-} fun `computeRecovery`(`databasePath`: kotlin.String): kotlin.String {
+}
+
+
+
+data class RecoveryReport (
+    var `recoveryScore`: kotlin.Double, 
+    var `recoveryState`: kotlin.String, 
+    var `hrv`: kotlin.Double, 
+    var `restingHr`: kotlin.Double, 
+    var `temperatureDelta`: kotlin.Double
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeRecoveryReport: FfiConverterRustBuffer<RecoveryReport> {
+    override fun read(buf: ByteBuffer): RecoveryReport {
+        return RecoveryReport(
+            FfiConverterDouble.read(buf),
+            FfiConverterString.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: RecoveryReport) = (
+            FfiConverterDouble.allocationSize(value.`recoveryScore`) +
+            FfiConverterString.allocationSize(value.`recoveryState`) +
+            FfiConverterDouble.allocationSize(value.`hrv`) +
+            FfiConverterDouble.allocationSize(value.`restingHr`) +
+            FfiConverterDouble.allocationSize(value.`temperatureDelta`)
+    )
+
+    override fun write(value: RecoveryReport, buf: ByteBuffer) {
+            FfiConverterDouble.write(value.`recoveryScore`, buf)
+            FfiConverterString.write(value.`recoveryState`, buf)
+            FfiConverterDouble.write(value.`hrv`, buf)
+            FfiConverterDouble.write(value.`restingHr`, buf)
+            FfiConverterDouble.write(value.`temperatureDelta`, buf)
+    }
+}
+
+
+
+data class SleepReport (
+    var `score`: kotlin.Double, 
+    var `need`: kotlin.Double, 
+    var `debt`: kotlin.Double, 
+    var `efficiency`: kotlin.Double, 
+    var `latency`: kotlin.Double, 
+    var `disturbances`: kotlin.UInt, 
+    var `remMinutes`: kotlin.Double, 
+    var `deepMinutes`: kotlin.Double, 
+    var `lightMinutes`: kotlin.Double, 
+    var `awakeMinutes`: kotlin.Double
+) {
+    
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeSleepReport: FfiConverterRustBuffer<SleepReport> {
+    override fun read(buf: ByteBuffer): SleepReport {
+        return SleepReport(
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterUInt.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+            FfiConverterDouble.read(buf),
+        )
+    }
+
+    override fun allocationSize(value: SleepReport) = (
+            FfiConverterDouble.allocationSize(value.`score`) +
+            FfiConverterDouble.allocationSize(value.`need`) +
+            FfiConverterDouble.allocationSize(value.`debt`) +
+            FfiConverterDouble.allocationSize(value.`efficiency`) +
+            FfiConverterDouble.allocationSize(value.`latency`) +
+            FfiConverterUInt.allocationSize(value.`disturbances`) +
+            FfiConverterDouble.allocationSize(value.`remMinutes`) +
+            FfiConverterDouble.allocationSize(value.`deepMinutes`) +
+            FfiConverterDouble.allocationSize(value.`lightMinutes`) +
+            FfiConverterDouble.allocationSize(value.`awakeMinutes`)
+    )
+
+    override fun write(value: SleepReport, buf: ByteBuffer) {
+            FfiConverterDouble.write(value.`score`, buf)
+            FfiConverterDouble.write(value.`need`, buf)
+            FfiConverterDouble.write(value.`debt`, buf)
+            FfiConverterDouble.write(value.`efficiency`, buf)
+            FfiConverterDouble.write(value.`latency`, buf)
+            FfiConverterUInt.write(value.`disturbances`, buf)
+            FfiConverterDouble.write(value.`remMinutes`, buf)
+            FfiConverterDouble.write(value.`deepMinutes`, buf)
+            FfiConverterDouble.write(value.`lightMinutes`, buf)
+            FfiConverterDouble.write(value.`awakeMinutes`, buf)
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeRecoveryReport: FfiConverterRustBuffer<RecoveryReport?> {
+    override fun read(buf: ByteBuffer): RecoveryReport? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeRecoveryReport.read(buf)
+    }
+
+    override fun allocationSize(value: RecoveryReport?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeRecoveryReport.allocationSize(value)
+        }
+    }
+
+    override fun write(value: RecoveryReport?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeRecoveryReport.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterOptionalTypeSleepReport: FfiConverterRustBuffer<SleepReport?> {
+    override fun read(buf: ByteBuffer): SleepReport? {
+        if (buf.get().toInt() == 0) {
+            return null
+        }
+        return FfiConverterTypeSleepReport.read(buf)
+    }
+
+    override fun allocationSize(value: SleepReport?): ULong {
+        if (value == null) {
+            return 1UL
+        } else {
+            return 1UL + FfiConverterTypeSleepReport.allocationSize(value)
+        }
+    }
+
+    override fun write(value: SleepReport?, buf: ByteBuffer) {
+        if (value == null) {
+            buf.put(0)
+        } else {
+            buf.put(1)
+            FfiConverterTypeSleepReport.write(value, buf)
+        }
+    }
+}
+
+
+
+
+/**
+ * @suppress
+ */
+public object FfiConverterSequenceUByte: FfiConverterRustBuffer<List<kotlin.UByte>> {
+    override fun read(buf: ByteBuffer): List<kotlin.UByte> {
+        val len = buf.getInt()
+        return List<kotlin.UByte>(len) {
+            FfiConverterUByte.read(buf)
+        }
+    }
+
+    override fun allocationSize(value: List<kotlin.UByte>): ULong {
+        val sizeForLength = 4UL
+        val sizeForItems = value.map { FfiConverterUByte.allocationSize(it) }.sum()
+        return sizeForLength + sizeForItems
+    }
+
+    override fun write(value: List<kotlin.UByte>, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        value.iterator().forEach {
+            FfiConverterUByte.write(it, buf)
+        }
+    }
+} fun `buildCommandFrame`(`sequence`: kotlin.UByte, `command`: kotlin.UByte, `data`: List<kotlin.UByte>): List<kotlin.UByte> {
+            return FfiConverterSequenceUByte.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_grape_core_fn_func_build_command_frame(
+        FfiConverterUByte.lower(`sequence`),FfiConverterUByte.lower(`command`),FfiConverterSequenceUByte.lower(`data`),_status)
+}
+    )
+    }
+    
+ fun `computeRecovery`(`databasePath`: kotlin.String): kotlin.String {
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_grape_core_fn_func_compute_recovery(
+        FfiConverterString.lower(`databasePath`),_status)
+}
+    )
+    }
+    
+ fun `computeRecoveryV0`(`databasePath`: kotlin.String): RecoveryReport? {
+            return FfiConverterOptionalTypeRecoveryReport.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_grape_core_fn_func_compute_recovery_v0(
         FfiConverterString.lower(`databasePath`),_status)
 }
     )
@@ -1098,6 +1448,15 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
             return FfiConverterString.lift(
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_grape_core_fn_func_compute_sleep(
+        FfiConverterString.lower(`databasePath`),_status)
+}
+    )
+    }
+    
+ fun `computeSleepV1`(`databasePath`: kotlin.String): SleepReport? {
+            return FfiConverterOptionalTypeSleepReport.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_grape_core_fn_func_compute_sleep_v1(
         FfiConverterString.lower(`databasePath`),_status)
 }
     )
@@ -1135,6 +1494,42 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
     uniffiRustCall() { _status ->
     UniffiLib.INSTANCE.uniffi_grape_core_fn_func_insert_packet(
         FfiConverterString.lower(`databasePath`),FfiConverterString.lower(`frameHex`),FfiConverterString.lower(`deviceType`),_status)
+}
+    )
+    }
+    
+ fun `sleepDebt`(`databasePath`: kotlin.String): kotlin.Double {
+            return FfiConverterDouble.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_grape_core_fn_func_sleep_debt(
+        FfiConverterString.lower(`databasePath`),_status)
+}
+    )
+    }
+    
+ fun `sleepEfficiency`(`databasePath`: kotlin.String): kotlin.Double {
+            return FfiConverterDouble.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_grape_core_fn_func_sleep_efficiency(
+        FfiConverterString.lower(`databasePath`),_status)
+}
+    )
+    }
+    
+ fun `sleepStageDistribution`(`databasePath`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_grape_core_fn_func_sleep_stage_distribution(
+        FfiConverterString.lower(`databasePath`),_status)
+}
+    )
+    }
+    
+ fun `sleepSummary`(`databasePath`: kotlin.String): kotlin.String {
+            return FfiConverterString.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.INSTANCE.uniffi_grape_core_fn_func_sleep_summary(
+        FfiConverterString.lower(`databasePath`),_status)
 }
     )
     }

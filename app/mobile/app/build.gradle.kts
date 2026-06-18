@@ -41,6 +41,7 @@ android {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
 
@@ -59,6 +60,12 @@ dependencies {
 
     // Logging
     implementation("com.jakewharton.timber:timber:5.0.1")
+
+    // WorkManager
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+
+    // JNA (Java Native Access) for UniFFI
+    implementation("net.java.dev.jna:jna:5.14.0@aar")
 
     // Vico Charts
     implementation("com.patrykandpatrick.vico:compose:1.15.0")
