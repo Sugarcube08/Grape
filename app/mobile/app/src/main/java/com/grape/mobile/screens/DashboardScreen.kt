@@ -83,8 +83,9 @@ fun DashboardScreen(
             try {
                 val sleep = GrapeRustBridge.computeSleepV1(dbPath)
                 val rec = GrapeRustBridge.computeRecoveryV0(dbPath)
+                val strain = GrapeRustBridge.computeStrainV1(dbPath)
                 withContext(Dispatchers.Main) {
-                    if (sleep != null && rec != null) {
+                    if (sleep != null && rec != null && strain != null) {
                         val durationMins = (sleep.remMinutes + sleep.deepMinutes + sleep.lightMinutes + sleep.awakeMinutes).toInt()
                         dataState = BiometricDataState.Available(
                             recoveryScore = rec.recoveryScore.toInt(),
@@ -97,7 +98,7 @@ fun DashboardScreen(
                             sleepNeedMins = sleep.need.toInt(),
                             sleepDebtMins = sleep.debt.toInt(),
                             efficiency = sleep.efficiency,
-                            strain = 11.4, // placeholder mock for strain in DB
+                            strain = strain.strainScore,
                             battery = uiState.batteryPercent
                         )
                     } else {
@@ -459,4 +460,3 @@ fun StatusGridCard(
         }
     }
 }
-

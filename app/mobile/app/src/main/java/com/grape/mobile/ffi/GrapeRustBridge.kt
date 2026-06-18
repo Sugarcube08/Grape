@@ -1,5 +1,25 @@
 package com.grape.mobile.ffi
 
+import org.json.JSONObject
+
+data class StrainReport(
+    val strainScore: Double,
+    val cardioLoad: Double,
+    val muscularLoad: Double,
+    val acuteLoad: Double,
+    val intensityClass: String,
+    val durationMinutes: Double,
+    val activeKcal: Double,
+    val steps: Long,
+    val averageHr: Double,
+    val maxHr: Double,
+    val restingHr: Double,
+    val recoveryScore: Double,
+    val baselineStrain30: Double,
+    val trainingTrendDelta: Double,
+    val trainingTrendDirection: String
+)
+
 object GrapeRustBridge {
     init {
         System.loadLibrary("grape_core")
@@ -15,6 +35,33 @@ object GrapeRustBridge {
 
     fun computeStrain(dbPath: String): String {
         return uniffi.grape.computeStrain(dbPath)
+    }
+
+    fun computeStrainV1(dbPath: String): StrainReport? {
+        val json = computeStrain(dbPath)
+        if (json.isBlank() || json == "{}") return null
+        val root = JSONObject(json)
+        val baseline30 = root.optJSONObject("baselines")
+            ?.optJSONObject("rolling_30_day")
+        val trainingTrend = root.optJSONObject("trends")
+            ?.optJSONObject("training_trend")
+        return StrainReport(
+            strainScore = root.optDouble("strain_score", Double.NaN).takeIf { !it.isNaN() } ?: return null,
+            cardioLoad = root.optDouble("cardio_load", 0.0),
+            muscularLoad = root.optDouble("muscular_load", 0.0),
+            acuteLoad = root.optDouble("acute_load", 0.0),
+            intensityClass = root.optString("intensity_class", "Light"),
+            durationMinutes = root.optDouble("duration_minutes", 0.0),
+            activeKcal = root.optDouble("active_kcal", 0.0),
+            steps = root.optLong("steps", 0L),
+            averageHr = root.optDouble("average_hr", 0.0),
+            maxHr = root.optDouble("max_hr", 0.0),
+            restingHr = root.optDouble("resting_hr", 0.0),
+            recoveryScore = root.optDouble("recovery_score", 0.0),
+            baselineStrain30 = baseline30?.optDouble("baseline_strain", 0.0) ?: 0.0,
+            trainingTrendDelta = trainingTrend?.optDouble("delta", 0.0) ?: 0.0,
+            trainingTrendDirection = trainingTrend?.optString("direction", "FLAT") ?: "FLAT"
+        )
     }
 
     fun computeStress(dbPath: String): String {
