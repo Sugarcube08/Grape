@@ -29,12 +29,16 @@ import com.grape.mobile.repository.DeviceRepository
 import kotlinx.coroutines.flow.collect
 import timber.log.Timber
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 
 @Composable
 fun RecoveryScreen(
     repository: DeviceRepository
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val actualDbPath = remember {
         val filesDir = context.filesDir
         java.io.File(filesDir, "grape.sqlite").absolutePath
@@ -45,11 +49,16 @@ fun RecoveryScreen(
     var currentSessionId by remember { mutableStateOf<String?>(null) }
 
     fun refreshData() {
-        try {
-            recoveryReport = GrapeRustBridge.computeRecoveryV0(actualDbPath)
-            Timber.d("Recovery screen refreshed: score=${recoveryReport?.recoveryScore}")
-        } catch (e: Exception) {
-            Timber.e(e, "Error computing recovery report")
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val report = GrapeRustBridge.computeRecoveryV0(actualDbPath)
+                withContext(Dispatchers.Main) {
+                    recoveryReport = report
+                    Timber.d("Recovery screen refreshed: score=${report?.recoveryScore}")
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Error computing recovery report")
+            }
         }
     }
 

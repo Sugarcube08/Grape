@@ -28,12 +28,16 @@ import com.grape.mobile.repository.DeviceRepository
 import kotlinx.coroutines.flow.collect
 import timber.log.Timber
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 
 @Composable
 fun SleepScreen(
     repository: DeviceRepository
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val actualDbPath = remember {
         val filesDir = context.filesDir
         java.io.File(filesDir, "grape.sqlite").absolutePath
@@ -44,11 +48,16 @@ fun SleepScreen(
     var currentSessionId by remember { mutableStateOf<String?>(null) }
 
     fun refreshData() {
-        try {
-            sleepReport = GrapeRustBridge.computeSleepV1(actualDbPath)
-            Timber.d("Sleep screen refreshed: score=${sleepReport?.score}")
-        } catch (e: Exception) {
-            Timber.e(e, "Error computing sleep report")
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val report = GrapeRustBridge.computeSleepV1(actualDbPath)
+                withContext(Dispatchers.Main) {
+                    sleepReport = report
+                    Timber.d("Sleep screen refreshed: score=${report?.score}")
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Error computing sleep report")
+            }
         }
     }
 

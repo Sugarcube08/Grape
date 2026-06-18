@@ -44,6 +44,7 @@ pub mod tool_args;
 pub mod ui_coverage;
 pub mod validation_labels;
 pub mod uniffi_api;
+pub mod jni_api;
 
 pub use error::{GrapeError, GrapeResult};
 pub use uniffi_api::*;

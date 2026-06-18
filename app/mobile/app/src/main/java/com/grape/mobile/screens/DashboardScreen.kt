@@ -39,6 +39,10 @@ fun DashboardScreen(
     val uiState by repository.uiState.collectAsState()
     val discoveredDevices by bleManager.discoveredDevices.collectAsState()
 
+    LaunchedEffect(Unit) {
+        repository.refreshState()
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -88,7 +92,7 @@ fun HeaderSection() {
             verticalAlignment = Alignment.CenterVertically
         ) {
             Image(
-                painter = painterResource(id = R.drawable.ic_grape_logo),
+                painter = painterResource(id = R.drawable.ic_grape_logo_png),
                 contentDescription = "Grape Logo",
                 modifier = Modifier.size(36.dp)
             )

@@ -64,8 +64,6 @@ dependencies {
     // WorkManager
     implementation("androidx.work:work-runtime-ktx:2.10.0")
 
-    // JNA (Java Native Access) for UniFFI
-    implementation("net.java.dev.jna:jna:5.14.0@aar")
 
     // Vico Charts
     implementation("com.patrykandpatrick.vico:compose:1.15.0")

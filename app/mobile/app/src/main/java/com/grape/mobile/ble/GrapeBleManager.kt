@@ -224,10 +224,10 @@ class GrapeBleManager(
         bluetoothAdapter.bluetoothLeScanner?.startScan(filters, settings, scanCallback)
         Timber.d("BLE Scan started")
 
-        // Stop scan after 15 seconds to save battery
+        // Stop scan after 30 seconds to save battery
         handler.postDelayed({
             stopScan()
-        }, 15000)
+        }, 30000)
     }
 
     fun stopScan() {

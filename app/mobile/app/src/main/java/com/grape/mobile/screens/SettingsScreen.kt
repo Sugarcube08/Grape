@@ -26,6 +26,9 @@ import com.grape.mobile.ble.GrapeBleManager
 import com.grape.mobile.repository.DeviceRepository
 import timber.log.Timber
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
@@ -34,6 +37,7 @@ fun SettingsScreen(
     onNavigateToAbout: () -> Unit
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val bleState by bleManager.state.collectAsState()
     val uiState by repository.uiState.collectAsState()
     
@@ -46,13 +50,20 @@ fun SettingsScreen(
     var syncProgress by remember { mutableStateOf<String?>(null) }
     var currentSessionId by remember { mutableStateOf<String?>(null) }
 
-    fun queryLastSync() {
+    suspend fun queryLastSync() = withContext(Dispatchers.IO) {
         var db: SQLiteDatabase? = null
         try {
             db = SQLiteDatabase.openOrCreateDatabase(actualDbPath, null)
             db.rawQuery("SELECT started_at FROM sync_sessions WHERE status = 'Completed' ORDER BY started_at DESC LIMIT 1", null).use { cursor ->
                 if (cursor.moveToFirst()) {
-                    lastSyncTime = cursor.getString(0) ?: "Never"
+                    val time = cursor.getString(0) ?: "Never"
+                    withContext(Dispatchers.Main) {
+                        lastSyncTime = time
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        lastSyncTime = "Never"
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -254,23 +265,29 @@ fun SettingsScreen(
 
                 Button(
                     onClick = {
-                        var db: SQLiteDatabase? = null
-                        try {
-                            db = SQLiteDatabase.openOrCreateDatabase(actualDbPath, null)
-                            db.execSQL("DELETE FROM external_sleep_sessions")
-                            db.execSQL("DELETE FROM external_sleep_stages")
-                            db.execSQL("DELETE FROM daily_recovery_metrics")
-                            db.execSQL("DELETE FROM sync_sessions")
-                            db.execSQL("DELETE FROM sync_progress")
-                            db.execSQL("DELETE FROM historical_packets")
-                            Toast.makeText(context, "Cache database cleared successfully.", Toast.LENGTH_SHORT).show()
-                        } catch (e: Exception) {
-                            Toast.makeText(context, "Cache clear failed.", Toast.LENGTH_SHORT).show()
-                            Timber.e(e, "DB cache clear error")
-                        } finally {
-                            db?.close()
+                        coroutineScope.launch(Dispatchers.IO) {
+                            var db: SQLiteDatabase? = null
+                            try {
+                                db = SQLiteDatabase.openOrCreateDatabase(actualDbPath, null)
+                                db.execSQL("DELETE FROM external_sleep_sessions")
+                                db.execSQL("DELETE FROM external_sleep_stages")
+                                db.execSQL("DELETE FROM daily_recovery_metrics")
+                                db.execSQL("DELETE FROM sync_sessions")
+                                db.execSQL("DELETE FROM sync_progress")
+                                db.execSQL("DELETE FROM historical_packets")
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "Cache database cleared successfully.", Toast.LENGTH_SHORT).show()
+                                }
+                            } catch (e: Exception) {
+                                withContext(Dispatchers.Main) {
+                                    Toast.makeText(context, "Cache clear failed.", Toast.LENGTH_SHORT).show()
+                                }
+                                Timber.e(e, "DB cache clear error")
+                            } finally {
+                                db?.close()
+                            }
+                            queryLastSync()
                         }
-                        queryLastSync()
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF991B1B)),
                     modifier = Modifier.fillMaxWidth(),

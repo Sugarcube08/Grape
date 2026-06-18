@@ -39,35 +39,55 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
     val uiState: StateFlow<DeviceUiState> = _uiState.asStateFlow()
 
     init {
-        refreshState()
+        // Delayed initialization: refreshState() is called from the UI (DashboardScreen) to prevent startup crash if FFI load fails.
     }
 
     private val dbPath: String
         get() = databaseHelper.getDatabasePath()
 
     fun updateConnectionState(status: String) {
-        val json = GrapeRustBridge.insertPacket(dbPath, "CONN:$status", "puffin")
-        parseAndApplyState(json)
+        try {
+            val json = GrapeRustBridge.insertPacket(dbPath, "CONN:$status", "puffin")
+            parseAndApplyState(json)
+        } catch (t: Throwable) {
+            Timber.e(t, "Error calling Rust updateConnectionState")
+        }
     }
 
     fun recordHeartRate(bpm: Int) {
-        val json = GrapeRustBridge.insertPacket(dbPath, "HR:$bpm", "puffin")
-        parseAndApplyState(json)
+        try {
+            val json = GrapeRustBridge.insertPacket(dbPath, "HR:$bpm", "puffin")
+            parseAndApplyState(json)
+        } catch (t: Throwable) {
+            Timber.e(t, "Error calling Rust recordHeartRate")
+        }
     }
 
     fun recordBattery(percent: Int) {
-        val json = GrapeRustBridge.insertPacket(dbPath, "BAT:$percent", "puffin")
-        parseAndApplyState(json)
+        try {
+            val json = GrapeRustBridge.insertPacket(dbPath, "BAT:$percent", "puffin")
+            parseAndApplyState(json)
+        } catch (t: Throwable) {
+            Timber.e(t, "Error calling Rust recordBattery")
+        }
     }
 
     fun insertWhoopPacket(frameHex: String, deviceType: String) {
-        val json = GrapeRustBridge.insertPacket(dbPath, frameHex, deviceType)
-        parseAndApplyState(json)
+        try {
+            val json = GrapeRustBridge.insertPacket(dbPath, frameHex, deviceType)
+            parseAndApplyState(json)
+        } catch (t: Throwable) {
+            Timber.e(t, "Error calling Rust insertWhoopPacket")
+        }
     }
 
     fun refreshState() {
-        val json = GrapeRustBridge.getDeviceState(dbPath)
-        parseAndApplyState(json)
+        try {
+            val json = GrapeRustBridge.getDeviceState(dbPath)
+            parseAndApplyState(json)
+        } catch (t: Throwable) {
+            Timber.e(t, "Failed to refresh device state from Rust")
+        }
     }
 
     private fun parseAndApplyState(jsonString: String) {
