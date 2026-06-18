@@ -1,12 +1,14 @@
 package com.grape.mobile.navigation
 
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.rounded.Home
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Person
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -19,95 +21,154 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.grape.mobile.ble.GrapeBleManager
 import com.grape.mobile.repository.DeviceRepository
+import com.grape.mobile.repository.UpdateRepository
 import com.grape.mobile.screens.DashboardScreen
 import com.grape.mobile.screens.SleepScreen
 import com.grape.mobile.screens.RecoveryScreen
-import com.grape.mobile.screens.AboutScreen
-import com.grape.mobile.screens.SettingsScreen
+import com.grape.mobile.screens.StrainScreen
+import com.grape.mobile.screens.DeviceScreen
+import com.grape.mobile.screens.ProfileScreen
+import com.grape.mobile.ui.components.FloatingBottomBar
+import com.grape.mobile.ui.components.NavigationTabItem
+import com.grape.mobile.theme.*
 
 sealed class Screen(val route: String, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    object Dashboard : Screen("dashboard", "Dashboard", Icons.Default.Home)
-    object Sleep : Screen("sleep", "Sleep", Icons.Default.Favorite)
-    object Recovery : Screen("recovery", "Recovery", Icons.Default.Star)
-    object Settings : Screen("settings", "Settings", Icons.Default.Settings)
-    object About : Screen("about", "About", Icons.Default.Info)
+    object Home : Screen("home", "Home", Icons.Rounded.Home)
+    object Recovery : Screen("recovery", "Recovery", Icons.Rounded.Favorite)
+    object Device : Screen("device", "Device", Icons.Rounded.Build)
+    object Profile : Screen("profile", "Profile", Icons.Rounded.Person)
 }
 
 @Composable
 fun AppNavigation(
     bleManager: GrapeBleManager,
-    repository: DeviceRepository
+    repository: DeviceRepository,
+    updateRepository: UpdateRepository
 ) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
 
+    var showUpdateDialog by remember { mutableStateOf(false) }
+    var latestVersionMeta by remember { mutableStateOf<com.grape.mobile.repository.VersionMetadata?>(null) }
+
+    LaunchedEffect(Unit) {
+        val meta = updateRepository.checkForUpdates()
+        if (meta != null) {
+            if (updateRepository.compareVersions(meta.version, meta.build)) {
+                latestVersionMeta = meta
+                showUpdateDialog = true
+            }
+        }
+    }
+
+    if (showUpdateDialog && latestVersionMeta != null) {
+        val meta = latestVersionMeta!!
+        AlertDialog(
+            onDismissRequest = {
+                if (!meta.mandatory) {
+                    showUpdateDialog = false
+                    updateRepository.dismissVersion(meta.version)
+                }
+            },
+            title = { Text(text = "New Version Available", color = TextPrimary) },
+            text = {
+                Column {
+                    Text(text = "v${meta.version} is now available.", color = TextSecondary)
+                    if (meta.notes.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(text = "Changelog:", fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, color = TextPrimary)
+                        meta.notes.forEach { note ->
+                            Text(text = "• $note", color = TextSecondary)
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        updateRepository.openReleasePage(meta.version)
+                        if (!meta.mandatory) {
+                            showUpdateDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = GrapePrimary)
+                ) {
+                    Text("Update", color = Color.White)
+                }
+            },
+            dismissButton = {
+                if (!meta.mandatory) {
+                    TextButton(
+                        onClick = {
+                            showUpdateDialog = false
+                            updateRepository.dismissVersion(meta.version)
+                        }
+                    ) {
+                        Text("Later", color = GrapeAccent)
+                    }
+                }
+            },
+            containerColor = BackgroundSecondary,
+            titleContentColor = TextPrimary,
+            textContentColor = TextSecondary
+        )
+    }
+
     val items = listOf(
-        Screen.Dashboard,
-        Screen.Sleep,
+        Screen.Home,
         Screen.Recovery,
-        Screen.Settings
+        Screen.Device,
+        Screen.Profile
     )
 
+    val tabItems = remember {
+        items.map { screen ->
+            NavigationTabItem(
+                route = screen.route,
+                title = screen.title,
+                icon = screen.icon
+            )
+        }
+    }
+
     Scaffold(
+        containerColor = Color.Transparent,
         bottomBar = {
-            NavigationBar(
-                containerColor = Color(0xFF16161A),
-                contentColor = Color.LightGray,
-                tonalElevation = 8.dp
-            ) {
-                items.forEach { screen ->
-                    val selected = currentRoute == screen.route
-                    NavigationBarItem(
-                        icon = { Icon(screen.icon, contentDescription = screen.title) },
-                        label = { Text(screen.title) },
-                        selected = selected,
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                            selectedTextColor = MaterialTheme.colorScheme.primary,
-                            unselectedIconColor = Color.Gray,
-                            unselectedTextColor = Color.Gray,
-                            indicatorColor = Color(0xFF2C2C35)
-                        ),
-                        onClick = {
-                            navController.navigate(screen.route) {
-                                popUpTo(navController.graph.findStartDestination().id) {
-                                    saveState = true
-                                }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
+            FloatingBottomBar(
+                tabs = tabItems,
+                currentRoute = currentRoute,
+                onTabSelected = { route ->
+                    navController.navigate(route) {
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
                         }
-                    )
+                        launchSingleTop = true
+                        restoreState = true
+                    }
                 }
-            }
+            )
         }
     ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = Screen.Dashboard.route,
-            modifier = Modifier.padding(innerPadding)
+            startDestination = Screen.Home.route,
+            modifier = Modifier.padding(top = innerPadding.calculateTopPadding())
         ) {
-            composable(Screen.Dashboard.route) {
+            composable(Screen.Home.route) {
                 DashboardScreen(bleManager, repository)
-            }
-            composable(Screen.Sleep.route) {
-                SleepScreen(repository)
             }
             composable(Screen.Recovery.route) {
                 RecoveryScreen(repository)
             }
-            composable(Screen.Settings.route) {
-                SettingsScreen(bleManager, repository) {
-                    navController.navigate(Screen.About.route)
-                }
+            composable(Screen.Device.route) {
+                DeviceScreen(bleManager, repository)
             }
-            composable(Screen.About.route) {
-                AboutScreen {
-                    navController.popBackStack()
-                }
+            composable(Screen.Profile.route) {
+                ProfileScreen(repository)
             }
         }
     }
 }
+
 

@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Binder
 import android.os.Build
 import android.os.IBinder
@@ -50,7 +51,15 @@ class GrapeBleService : Service() {
             .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
             .build()
 
-        startForeground(1, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                1,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE
+            )
+        } else {
+            startForeground(1, notification)
+        }
     }
 
     override fun onDestroy() {
@@ -58,3 +67,4 @@ class GrapeBleService : Service() {
         Timber.d("GrapeBleService destroyed")
     }
 }
+

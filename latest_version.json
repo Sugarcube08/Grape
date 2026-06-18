@@ -1,0 +1,10 @@
+{
+  "version": "0.2.0-alpha",
+  "build": 2,
+  "mandatory": false,
+  "notes": [
+    "Historical Sync",
+    "Recovery",
+    "Sleep"
+  ]
+}

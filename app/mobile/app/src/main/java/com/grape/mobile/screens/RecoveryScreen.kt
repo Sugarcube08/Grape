@@ -1,10 +1,8 @@
 package com.grape.mobile.screens
 
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
-import androidx.compose.animation.core.*
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -14,8 +12,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -26,6 +22,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.grape.mobile.ffi.GrapeRustBridge
 import com.grape.mobile.repository.DeviceRepository
+import com.grape.mobile.ui.components.*
+import com.grape.mobile.theme.*
 import kotlinx.coroutines.flow.collect
 import timber.log.Timber
 import java.util.UUID
@@ -40,24 +38,42 @@ fun RecoveryScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
     val actualDbPath = remember {
-        val filesDir = context.filesDir
-        java.io.File(filesDir, "grape.sqlite").absolutePath
+        java.io.File(context.filesDir, "grape.sqlite").absolutePath
     }
 
-    var recoveryReport by remember { mutableStateOf<uniffi.grape.RecoveryReport?>(null) }
-    var syncProgress by remember { mutableStateOf<String?>(null) }
-    var currentSessionId by remember { mutableStateOf<String?>(null) }
+    var dataState by remember { mutableStateOf<BiometricDataState>(BiometricDataState.Loading) }
 
     fun refreshData() {
         coroutineScope.launch(Dispatchers.IO) {
             try {
-                val report = GrapeRustBridge.computeRecoveryV0(actualDbPath)
+                val sleep = GrapeRustBridge.computeSleepV1(actualDbPath)
+                val rec = GrapeRustBridge.computeRecoveryV0(actualDbPath)
                 withContext(Dispatchers.Main) {
-                    recoveryReport = report
-                    Timber.d("Recovery screen refreshed: score=${report?.recoveryScore}")
+                    if (sleep != null && rec != null) {
+                        val durationMins = (sleep.remMinutes + sleep.deepMinutes + sleep.lightMinutes + sleep.awakeMinutes).toInt()
+                        dataState = BiometricDataState.Available(
+                            recoveryScore = rec.recoveryScore.toInt(),
+                            recoveryState = rec.recoveryState,
+                            hrv = rec.hrv.toInt(),
+                            restingHr = rec.restingHr.toInt(),
+                            tempDelta = rec.temperatureDelta,
+                            sleepScore = sleep.score.toInt(),
+                            sleepDurationMins = durationMins,
+                            sleepNeedMins = sleep.need.toInt(),
+                            sleepDebtMins = sleep.debt.toInt(),
+                            efficiency = sleep.efficiency,
+                            strain = 11.4,
+                            battery = 0
+                        )
+                    } else {
+                        dataState = BiometricDataState.Unavailable
+                    }
                 }
             } catch (e: Exception) {
-                Timber.e(e, "Error computing recovery report")
+                Timber.e(e, "Error computing reports on recovery tab")
+                withContext(Dispatchers.Main) {
+                    dataState = BiometricDataState.Unavailable
+                }
             }
         }
     }
@@ -66,164 +82,295 @@ fun RecoveryScreen(
         refreshData()
     }
 
-    // Monitor sync progress if running
-    LaunchedEffect(currentSessionId) {
-        val sessionId = currentSessionId ?: return@LaunchedEffect
-        repository.queryHistoricalProgress(sessionId).collect { progress ->
-            if (progress != null) {
-                syncProgress = "Sync Status: ${progress.status} (Packets: ${progress.packetsDownloaded})"
-                if (progress.status == "Completed" || progress.status == "Failed") {
-                    refreshData()
-                    if (progress.status == "Completed") {
-                        syncProgress = null
-                        currentSessionId = null
+    BackgroundContainer {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .padding(top = 24.dp, bottom = 140.dp), // Prevent bottom bar overlap
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // Header Title
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Start
+            ) {
+                Text(
+                    text = "PHYSIOLOGICAL HUB",
+                    style = GrapeTypography.labelSmall,
+                    color = TextSecondary,
+                    letterSpacing = 1.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            when (val state = dataState) {
+                BiometricDataState.Loading -> {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(color = GrapePrimary)
+                    }
+                }
+                BiometricDataState.Unavailable -> {
+                    // Empty sync details screen
+                    GlassCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 20.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "No Analytics Available",
+                                style = GrapeTypography.headlineLarge,
+                                color = TextPrimary
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Perform a sync with your WHOOP wearable on the Device tab or inject mock physiological markers inside the Profile screen to calculate biometric score parameters.",
+                                style = GrapeTypography.bodyMedium,
+                                color = TextSecondary,
+                                lineHeight = 18.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                        }
+                    }
+                }
+                is BiometricDataState.Available -> {
+                    // --- SECTION 1: RECOVERY ---
+                    RecoveryHeaderSection("RECOVERY DIAGNOSTICS")
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    RecoveryGauge(score = state.recoveryScore)
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        RecoveryStatCard(
+                            title = "HRV",
+                            value = "${state.hrv} ms",
+                            subText = "Heart Rate Variability",
+                            modifier = Modifier.weight(1f)
+                        )
+                        RecoveryStatCard(
+                            title = "RHR",
+                            value = "${state.restingHr} bpm",
+                            subText = "Resting Heart Rate",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        RecoveryStatCard(
+                            title = "TEMP",
+                            value = String.format("%+.1f °C", state.tempDelta),
+                            subText = "Skin Temp Delta",
+                            modifier = Modifier.weight(1f)
+                        )
+                        RecoveryStatCard(
+                            title = "RECOVERY STATUS",
+                            value = state.recoveryState,
+                            subText = "Current State",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(40.dp))
+
+                    // --- SECTION 2: SLEEP SUMMARY ---
+                    RecoveryHeaderSection("SLEEP PERFORMANCE")
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    val sleepHrs = state.sleepDurationMins / 60
+                    val sleepMins = state.sleepDurationMins % 60
+                    GlassCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Sleep Score", style = GrapeTypography.headlineMedium, color = TextPrimary)
+                                Text("${state.sleepScore}%", style = GrapeTypography.displayMedium, color = SleepBlue)
+                            }
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Duration: ${sleepHrs}h ${sleepMins}m | Efficiency: ${String.format("%.0f%%", state.efficiency)}",
+                                style = GrapeTypography.bodyMedium,
+                                color = TextSecondary
+                            )
+                            Spacer(modifier = Modifier.height(20.dp))
+
+                            // Custom horizontal timeline stages block
+                            val segments = listOf(
+                                SleepStageSegment("Deep", 110, SleepPurple),
+                                SleepStageSegment("Light", 250, SleepBlue),
+                                SleepStageSegment("REM", 85, GrapeAccent),
+                                SleepStageSegment("Awake", 35, StressOrange)
+                            )
+                            SleepTimeline(segments = segments)
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        RecoveryStatCard(
+                            title = "SLEEP NEED",
+                            value = String.format("%.1fh", state.sleepNeedMins / 60.0),
+                            subText = "Target Sleep Duration",
+                            modifier = Modifier.weight(1f)
+                        )
+                        RecoveryStatCard(
+                            title = "SLEEP DEBT",
+                            value = "${state.sleepDebtMins.toInt()}m",
+                            subText = "Sleep Deficit Accumulated",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(40.dp))
+
+                    // --- SECTION 3: ATHLETIC STRAIN ---
+                    RecoveryHeaderSection("ATHLETIC STRAIN")
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    // Strain Gauge Canvas
+                    Box(
+                        modifier = Modifier.size(240.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+                            drawArc(
+                                color = Color.White.copy(alpha = 0.05f),
+                                startAngle = -220f,
+                                sweepAngle = 260f,
+                                useCenter = false,
+                                style = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Round)
+                            )
+                            val gradientBrush = Brush.linearGradient(
+                                colors = listOf(StrainOrange, StrainRed)
+                            )
+                            drawArc(
+                                brush = gradientBrush,
+                                startAngle = -220f,
+                                sweepAngle = (state.strain.toFloat() / 21f * 260f),
+                                useCenter = false,
+                                style = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text(
+                                text = "${state.strain}",
+                                style = GrapeTypography.displayLarge.copy(fontSize = 54.sp, fontWeight = FontWeight.ExtraBold),
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "MODERATE STRAIN",
+                                style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = StrainOrange,
+                                letterSpacing = 1.5.sp
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        RecoveryStatCard(
+                            title = "CARDIO LOAD",
+                            value = "5.2",
+                            subText = "Heart Rate Intensity",
+                            modifier = Modifier.weight(1f)
+                        )
+                        RecoveryStatCard(
+                            title = "MUSCULAR LOAD",
+                            value = "4.8",
+                            subText = "Weight & Resistance",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        RecoveryStatCard(
+                            title = "ACTIVE ENERGY",
+                            value = "540 kcal",
+                            subText = "Calories Burned",
+                            modifier = Modifier.weight(1f)
+                        )
+                        RecoveryStatCard(
+                            title = "TOTAL STEPS",
+                            value = "8,600",
+                            subText = "Daily Movement",
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(40.dp))
+
+                    // --- SECTION 4: WEEKLY BIO TRENDS ---
+                    RecoveryHeaderSection("WEEKLY ANALYTICS TREND")
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    GlassCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                            Column {
+                                Text("Recovery Score Trend", style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold), color = TextSecondary)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                WeeklyHeatmap(
+                                    days = listOf("M", "T", "W", "T", "F", "S", "S"),
+                                    scores = listOf(78, 54, 88, state.recoveryScore, 0, 0, 0),
+                                    type = HeatmapType.RECOVERY
+                                )
+                            }
+                            Column {
+                                Text("Sleep Score Trend", style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold), color = TextSecondary)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                WeeklyHeatmap(
+                                    days = listOf("M", "T", "W", "T", "F", "S", "S"),
+                                    scores = listOf(85, 78, 90, state.sleepScore, 0, 0, 0),
+                                    type = HeatmapType.SLEEP
+                                )
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF0F0F12))
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+@Composable
+fun RecoveryHeaderSection(title: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Start
     ) {
-        // Title
         Text(
-            text = "RECOVERY ANALYSIS",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF8A8A93),
-            letterSpacing = 2.sp,
-            modifier = Modifier.align(Alignment.Start)
+            text = title,
+            style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = TextSecondary,
+            letterSpacing = 1.sp
         )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (recoveryReport == null) {
-            NoRecoveryDataView(
-                syncProgress = syncProgress,
-                onSimulateSync = {
-                    val newSessionId = UUID.randomUUID().toString()
-                    currentSessionId = newSessionId
-                    repository.beginHistoricalSync(context, newSessionId)
-                },
-                onInjectMockData = {
-                    val now = System.currentTimeMillis()
-                    // First insert a sleep session because recovery depends on sleep score
-                    repository.insertMockSleepSession(
-                        startTimeUnixMs = now - 9 * 3600 * 1000,
-                        endTimeUnixMs = now - 1 * 3600 * 1000,
-                        remMinutes = 85.0,
-                        deepMinutes = 110.0,
-                        coreMinutes = 250.0,
-                        awakeMinutes = 35.0
-                    )
-                    // Insert recovery metrics: resting HR 54 bpm, HRV 75 ms, skin temp delta -0.2 C
-                    repository.insertMockRecoveryMetric(
-                        startTimeUnixMs = now - 9 * 3600 * 1000,
-                        endTimeUnixMs = now - 1 * 3600 * 1000,
-                        restingHr = 54.0,
-                        hrv = 75.0,
-                        tempDelta = -0.2
-                    )
-                    refreshData()
-                }
-            )
-        } else {
-            val report = recoveryReport!!
-
-            // Recovery Gauge
-            RecoveryRadialGauge(
-                score = report.recoveryScore,
-                state = report.recoveryState
-            )
-
-            Spacer(modifier = Modifier.height(28.dp))
-
-            // Main stats grid
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                RecoveryMetricCard(
-                    title = "HEART RATE VARIABILITY",
-                    value = String.format("%.0f", report.hrv),
-                    unit = "MS",
-                    label = "HRV (RMSSD)",
-                    modifier = Modifier.weight(1f)
-                )
-                RecoveryMetricCard(
-                    title = "RESTING HEART RATE",
-                    value = String.format("%.0f", report.restingHr),
-                    unit = "BPM",
-                    label = "RHR",
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                RecoveryMetricCard(
-                    title = "SKIN TEMP DEVIATION",
-                    value = String.format("%+.1f", report.temperatureDelta),
-                    unit = "°C",
-                    label = "Skin Temp Delta",
-                    modifier = Modifier.weight(1f)
-                )
-                // We show recovery state card
-                Card(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(110.dp),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = Color(0xFF16161A))
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .padding(16.dp),
-                        verticalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Text(
-                            text = "RECOVERY STATUS",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.Gray,
-                            letterSpacing = 1.sp
-                        )
-                        val badgeColor = when (report.recoveryState) {
-                            "GREEN" -> Color(0xFF10B981)
-                            "YELLOW" -> Color(0xFFFBBF24)
-                            else -> Color(0xFFEF4444)
-                        }
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(badgeColor.copy(alpha = 0.15f))
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                        ) {
-                            Text(
-                                text = report.recoveryState,
-                                color = badgeColor,
-                                fontWeight = FontWeight.ExtraBold,
-                                fontSize = 16.sp,
-                                letterSpacing = 1.sp
-                            )
-                        }
-                    }
-                }
-            }
-
-
-        }
     }
 }
 
@@ -233,50 +380,53 @@ fun NoRecoveryDataView(
     onSimulateSync: () -> Unit,
     onInjectMockData: () -> Unit
 ) {
-    Card(
+    GlassCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 20.dp),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF16161A))
+        cornerRadius = 28.dp
     ) {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
-                text = "NO RECOVERY METRICS YET",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.White
+                text = "No Recovery Metrics Yet",
+                style = GrapeTypography.headlineLarge,
+                color = TextPrimary
             )
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Perform a sync or inject mock physiological markers to run the Recovery v0 engine (HRV, RHR, sleep quality, skin temp).",
-                fontSize = 13.sp,
-                color = Color.Gray,
-                lineHeight = 18.sp,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
+                text = "Perform a sync with your connected wearable or load mock physiological markers to calculate Recovery Score (HRV, RHR, temperature delta).",
+                style = GrapeTypography.bodyMedium,
+                color = TextSecondary,
+                lineHeight = 18.sp
             )
-            Spacer(modifier = Modifier.height(20.dp))
+            Spacer(modifier = Modifier.height(24.dp))
 
             if (syncProgress != null) {
                 Text(
                     text = syncProgress,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
+                    style = GrapeTypography.bodyMedium,
+                    color = GrapeAccent,
+                    fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(16.dp))
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+                CircularProgressIndicator(color = GrapeAccent)
             } else {
                 Button(
                     onClick = onSimulateSync,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    colors = ButtonDefaults.buttonColors(containerColor = GrapePrimary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(14.dp)
                 ) {
-                    Text("START HISTORICAL SYNC", fontWeight = FontWeight.Bold)
+                    Text("START HISTORICAL SYNC", style = GrapeTypography.labelLarge, color = Color.White)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                TextButton(onClick = onInjectMockData) {
+                    Text("INJECT MOCK PHYSIOLOGICAL DATA", color = GrapeAccent, style = GrapeTypography.labelSmall)
                 }
             }
         }
@@ -284,99 +434,38 @@ fun NoRecoveryDataView(
 }
 
 @Composable
-fun RecoveryRadialGauge(score: Double, state: String) {
-    Box(
-        modifier = Modifier.size(220.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        val stateColor = when (state) {
-            "GREEN" -> Color(0xFF10B981)
-            "YELLOW" -> Color(0xFFFBBF24)
-            else -> Color(0xFFEF4444)
-        }
-
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            // Background arc (dash/dot track style)
-            drawArc(
-                color = Color(0xFF1C1C24),
-                startAngle = -220f,
-                sweepAngle = 260f,
-                useCenter = false,
-                style = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Round)
-            )
-
-            // Value arc
-            drawArc(
-                color = stateColor,
-                startAngle = -220f,
-                sweepAngle = (score / 100.0 * 260.0).toFloat(),
-                useCenter = false,
-                style = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Round)
-            )
-        }
-
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(
-                text = String.format("%.0f", score),
-                fontSize = 64.sp,
-                fontWeight = FontWeight.Black,
-                color = Color.White
-            )
-            Text(
-                text = "% RECOVERY",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Gray,
-                letterSpacing = 2.sp
-            )
-        }
-    }
-}
-
-@Composable
-fun RecoveryMetricCard(
+fun RecoveryStatCard(
     title: String,
     value: String,
-    unit: String,
-    label: String,
+    subText: String,
     modifier: Modifier = Modifier
 ) {
-    Card(
+    GlassCard(
         modifier = modifier.height(110.dp),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF16161A))
+        cornerRadius = 24.dp
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
                 text = title,
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Gray,
-                letterSpacing = 0.5.sp
+                style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = TextSecondary
             )
-            Row(
-                verticalAlignment = Alignment.Bottom
-            ) {
+            Column {
                 Text(
                     text = value,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color.White
+                    style = GrapeTypography.headlineLarge,
+                    color = TextPrimary
                 )
-                Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = unit,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(bottom = 6.dp)
+                    text = subText,
+                    style = GrapeTypography.labelSmall.copy(fontSize = 11.sp),
+                    color = TextSecondary
                 )
             }
         }
     }
 }
+

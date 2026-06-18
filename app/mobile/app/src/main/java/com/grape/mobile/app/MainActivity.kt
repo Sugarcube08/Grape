@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
@@ -21,6 +22,7 @@ import timber.log.Timber
 class MainActivity : ComponentActivity() {
     private val bleManager: GrapeBleManager by inject()
     private val repository: DeviceRepository by inject()
+    private val updateRepository: com.grape.mobile.repository.UpdateRepository by inject()
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -38,6 +40,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         installSplashScreen()
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         Timber.d("MainActivity onCreate")
 
@@ -45,7 +48,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             GrapeTheme {
-                AppNavigation(bleManager, repository)
+                AppNavigation(bleManager, repository, updateRepository)
             }
         }
     }

@@ -1,7 +1,6 @@
 package com.grape.mobile.screens
 
 import android.content.Context
-import android.database.sqlite.SQLiteDatabase
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -13,8 +12,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -25,6 +22,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.grape.mobile.ffi.GrapeRustBridge
 import com.grape.mobile.repository.DeviceRepository
+import com.grape.mobile.ui.components.BackgroundContainer
+import com.grape.mobile.ui.components.GlassCard
+import com.grape.mobile.ui.components.SleepTimeline
+import com.grape.mobile.ui.components.SleepStageSegment
+import com.grape.mobile.ui.components.WeeklyHeatmap
+import com.grape.mobile.ui.components.HeatmapType
+import com.grape.mobile.theme.*
 import kotlinx.coroutines.flow.collect
 import timber.log.Timber
 import java.util.UUID
@@ -46,6 +50,7 @@ fun SleepScreen(
     var sleepReport by remember { mutableStateOf<uniffi.grape.SleepReport?>(null) }
     var syncProgress by remember { mutableStateOf<String?>(null) }
     var currentSessionId by remember { mutableStateOf<String?>(null) }
+    var syncStartTime by remember { mutableStateOf(0L) }
 
     fun refreshData() {
         coroutineScope.launch(Dispatchers.IO) {
@@ -70,7 +75,33 @@ fun SleepScreen(
         val sessionId = currentSessionId ?: return@LaunchedEffect
         repository.queryHistoricalProgress(sessionId).collect { progress ->
             if (progress != null) {
-                syncProgress = "Sync Status: ${progress.status} (Packets: ${progress.packetsDownloaded})"
+                val status = progress.status
+                val packets = progress.packetsDownloaded
+                val bytes = progress.bytesDownloaded
+                val mb = String.format("%.2f", bytes / (1024.0 * 1024.0))
+                val oldest = progress.oldestPage ?: 0L
+                val newest = progress.newestPage ?: 0L
+                val totalPages = (newest - oldest).coerceAtLeast(1)
+                val totalExpectedPackets = totalPages * 50
+                
+                val elapsedMs = System.currentTimeMillis() - syncStartTime
+                val elapsedSec = elapsedMs / 1000.0
+                val rate = if (elapsedSec > 0) packets / elapsedSec else 0.0
+                val remainingPackets = (totalExpectedPackets - packets).coerceAtLeast(0)
+                
+                val etaStr = if (rate > 0 && remainingPackets > 0) {
+                    val etaSec = remainingPackets / rate
+                    if (etaSec > 60) {
+                        String.format("%d min %d sec", etaSec.toInt() / 60, etaSec.toInt() % 60)
+                    } else {
+                        String.format("%d sec", etaSec.toInt())
+                    }
+                } else {
+                    "Calculating..."
+                }
+
+                syncProgress = "Syncing: $status | Packets: $packets/$totalExpectedPackets | ETA: $etaStr"
+
                 if (progress.status == "Completed" || progress.status == "Failed") {
                     refreshData()
                     if (progress.status == "Completed") {
@@ -82,160 +113,155 @@ fun SleepScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF0F0F12))
-            .verticalScroll(rememberScrollState())
-            .padding(20.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        // Title
-        Text(
-            text = "SLEEP METRICS",
-            fontSize = 12.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF8A8A93),
-            letterSpacing = 2.sp,
-            modifier = Modifier.align(Alignment.Start)
-        )
-        
-        Spacer(modifier = Modifier.height(16.dp))
-
-        if (sleepReport == null) {
-            NoSleepDataView(
-                syncProgress = syncProgress,
-                onSimulateSync = {
-                    val newSessionId = UUID.randomUUID().toString()
-                    currentSessionId = newSessionId
-                    repository.beginHistoricalSync(context, newSessionId)
-                },
-                onInjectMockData = {
-                    val now = System.currentTimeMillis()
-                    // Insert a mock 8 hr sleep session (480 min): 80m REM, 100m Deep, 260m Light/Core, 40m Awake
-                    repository.insertMockSleepSession(
-                        startTimeUnixMs = now - 9 * 3600 * 1000,
-                        endTimeUnixMs = now - 1 * 3600 * 1000,
-                        remMinutes = 80.0,
-                        deepMinutes = 100.0,
-                        coreMinutes = 260.0,
-                        awakeMinutes = 40.0
-                    )
-                    refreshData()
-                }
-            )
-        } else {
-            val report = sleepReport!!
-            
-            // Sleep Score Radial Ring
-            SleepScoreRadialGauge(score = report.score)
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Main stats grid
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                SleepMetricCard(
-                    title = "SLEEP NEED",
-                    value = String.format("%.1f", report.need / 60.0),
-                    unit = "HRS",
-                    modifier = Modifier.weight(1f)
-                )
-                SleepMetricCard(
-                    title = "SLEEP DEBT",
-                    value = String.format("%.1f", report.debt / 60.0),
-                    unit = "HRS",
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(16.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                SleepMetricCard(
-                    title = "EFFICIENCY",
-                    value = String.format("%.0f", report.efficiency),
-                    unit = "%",
-                    modifier = Modifier.weight(1f)
-                )
-                SleepMetricCard(
-                    title = "DISTURBANCES",
-                    value = "${report.disturbances}",
-                    unit = "TIMES",
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(24.dp))
-
-            // Sleep Stages Donut/Bar Chart
-            SleepStagesChart(
-                rem = report.remMinutes,
-                deep = report.deepMinutes,
-                light = report.lightMinutes,
-                awake = report.awakeMinutes
-            )
-
-
-        }
-    }
-}
-
-@Composable
-fun NoSleepDataView(
-    syncProgress: String?,
-    onSimulateSync: () -> Unit,
-    onInjectMockData: () -> Unit
-) {
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 20.dp),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF16161A))
-    ) {
+    BackgroundContainer {
         Column(
-            modifier = Modifier.padding(24.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 24.dp)
+                .padding(top = 24.dp, bottom = 100.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = "NO SLEEP REPORT YET",
-                fontSize = 18.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = Color.White
-            )
-            Spacer(modifier = Modifier.height(8.dp))
-            Text(
-                text = "Perform a historical sync with your WHOOP band or inject mock data to test the Sleep Engine v1 algorithm.",
-                fontSize = 13.sp,
-                color = Color.Gray,
-                lineHeight = 18.sp,
-                modifier = Modifier.align(Alignment.CenterHorizontally)
-            )
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Start
+            ) {
+                Text(
+                    text = "SLEEP METRICS",
+                    style = GrapeTypography.labelSmall,
+                    color = TextSecondary,
+                    letterSpacing = 1.5.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
             Spacer(modifier = Modifier.height(20.dp))
 
-            if (syncProgress != null) {
-                Text(
-                    text = syncProgress,
-                    color = MaterialTheme.colorScheme.primary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 14.sp
+            if (sleepReport == null) {
+                NoSleepDataView(
+                    syncProgress = syncProgress,
+                    onSimulateSync = {
+                        val newSessionId = UUID.randomUUID().toString()
+                        syncStartTime = System.currentTimeMillis()
+                        currentSessionId = newSessionId
+                        repository.beginHistoricalSync(context, newSessionId)
+                    },
+                    onInjectMockData = {
+                        val now = System.currentTimeMillis()
+                        // Insert mock sleep session: 480 min (8h 0m): 85m REM, 110m Deep, 250m Light, 35m Awake
+                        repository.insertMockSleepSession(
+                            startTimeUnixMs = now - 9 * 3600 * 1000,
+                            endTimeUnixMs = now - 1 * 3600 * 1000,
+                            remMinutes = 85.0,
+                            deepMinutes = 110.0,
+                            coreMinutes = 250.0,
+                            awakeMinutes = 35.0
+                        )
+                        refreshData()
+                    }
                 )
-                Spacer(modifier = Modifier.height(16.dp))
-                CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
             } else {
-                Button(
-                    onClick = onSimulateSync,
-                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                val report = sleepReport!!
+
+                // Sleep Score Gauge
+                SleepScoreRadialGauge(score = report.score)
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Stats Section
+                val totalMinutes = report.remMinutes + report.deepMinutes + report.lightMinutes + report.awakeMinutes
+                val hours = (totalMinutes / 60).toInt()
+                val minutes = (totalMinutes % 60).toInt()
+
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Text("START HISTORICAL SYNC", fontWeight = FontWeight.Bold)
+                    SleepStatCard(
+                        title = "SLEEP DURATION",
+                        value = "${hours}h ${minutes}m",
+                        subText = "Total Time Asleep",
+                        modifier = Modifier.weight(1f)
+                    )
+                    SleepStatCard(
+                        title = "EFFICIENCY",
+                        value = String.format("%.0f%%", report.efficiency),
+                        subText = "Sleep Efficiency",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(16.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    SleepStatCard(
+                        title = "SLEEP NEED",
+                        value = String.format("%.1fh", report.need / 60.0),
+                        subText = "Target Sleep Duration",
+                        modifier = Modifier.weight(1f)
+                    )
+                    SleepStatCard(
+                        title = "SLEEP DEBT",
+                        value = String.format("%.0fm", report.debt),
+                        subText = "Accumulated Sleep Debt",
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(24.dp))
+
+                // Sleep Stages Timeline
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    Text(
+                        text = "SLEEP STAGES & ARCHITECTURE",
+                        style = GrapeTypography.labelSmall,
+                        color = TextSecondary,
+                        letterSpacing = 1.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+
+                GlassCard(modifier = Modifier.fillMaxWidth()) {
+                    val segments = listOf(
+                        SleepStageSegment("Deep", report.deepMinutes.toInt(), SleepPurple),
+                        SleepStageSegment("Light", report.lightMinutes.toInt(), SleepBlue),
+                        SleepStageSegment("REM", report.remMinutes.toInt(), GrapeAccent),
+                        SleepStageSegment("Awake", report.awakeMinutes.toInt(), StressOrange)
+                    )
+                    SleepTimeline(segments = segments)
+                }
+
+                Spacer(modifier = Modifier.height(32.dp))
+
+                // Heatmap Section
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.Start
+                ) {
+                    Text(
+                        text = "WEEKLY SLEEP TREND",
+                        style = GrapeTypography.labelSmall,
+                        color = TextSecondary,
+                        letterSpacing = 1.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+
+                GlassCard(modifier = Modifier.fillMaxWidth()) {
+                    WeeklyHeatmap(
+                        days = listOf("M", "T", "W", "T", "F", "S", "S"),
+                        scores = listOf(85, 78, 90, report.score.toInt(), 0, 0, 0),
+                        type = HeatmapType.SLEEP
+                    )
                 }
             }
         }
@@ -245,28 +271,25 @@ fun NoSleepDataView(
 @Composable
 fun SleepScoreRadialGauge(score: Double) {
     Box(
-        modifier = Modifier.size(200.dp),
+        modifier = Modifier.size(220.dp),
         contentAlignment = Alignment.Center
     ) {
-        val scoreColor = when {
-            score >= 67.0 -> Color(0xFF10B981) // Green
-            score >= 34.0 -> Color(0xFFFBBF24) // Yellow
-            else -> Color(0xFFEF4444) // Red
-        }
-
-        Canvas(modifier = Modifier.fillMaxSize()) {
-            // Draw background circle
+        Canvas(modifier = Modifier.fillMaxSize().padding(12.dp)) {
+            // Track background arc
             drawArc(
-                color = Color(0xFF1C1C24),
+                color = Color.White.copy(alpha = 0.05f),
                 startAngle = -220f,
                 sweepAngle = 260f,
                 useCenter = false,
                 style = Stroke(width = 16.dp.toPx(), cap = StrokeCap.Round)
             )
 
-            // Draw active score arc
+            // Progress arc
+            val gradientBrush = Brush.linearGradient(
+                colors = listOf(SleepBlue, SleepPurple)
+            )
             drawArc(
-                color = scoreColor,
+                brush = gradientBrush,
                 startAngle = -220f,
                 sweepAngle = (score / 100.0 * 260.0).toFloat(),
                 useCenter = false,
@@ -277,188 +300,111 @@ fun SleepScoreRadialGauge(score: Double) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(
                 text = String.format("%.0f", score),
-                fontSize = 56.sp,
-                fontWeight = FontWeight.Black,
-                color = Color.White
+                style = GrapeTypography.displayLarge.copy(fontSize = 54.sp, fontWeight = FontWeight.ExtraBold),
+                color = TextPrimary
             )
             Text(
-                text = "SLEEP PERFORMANCE",
-                fontSize = 10.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Gray,
-                letterSpacing = 1.sp
+                text = "SLEEP SCORE",
+                style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = TextSecondary,
+                letterSpacing = 1.5.sp
             )
         }
     }
 }
 
 @Composable
-fun SleepMetricCard(
-    title: String,
-    value: String,
-    unit: String,
-    modifier: Modifier = Modifier
+fun NoSleepDataView(
+    syncProgress: String?,
+    onSimulateSync: () -> Unit,
+    onInjectMockData: () -> Unit
 ) {
-    Card(
-        modifier = modifier.height(110.dp),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF16161A))
+    GlassCard(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 20.dp),
+        cornerRadius = 28.dp
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(16.dp),
+            modifier = Modifier.fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "No Sleep Reports Yet",
+                style = GrapeTypography.headlineLarge,
+                color = TextPrimary
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = "Perform a sync or load mock sleep session metrics to calculate sleep stages and architectural quality metrics.",
+                style = GrapeTypography.bodyMedium,
+                color = TextSecondary,
+                lineHeight = 18.sp
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+
+            if (syncProgress != null) {
+                Text(
+                    text = syncProgress,
+                    style = GrapeTypography.bodyMedium,
+                    color = GrapeAccent,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                CircularProgressIndicator(color = GrapeAccent)
+            } else {
+                Button(
+                    onClick = onSimulateSync,
+                    colors = ButtonDefaults.buttonColors(containerColor = GrapePrimary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text("START HISTORICAL SYNC", style = GrapeTypography.labelLarge, color = Color.White)
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+                TextButton(onClick = onInjectMockData) {
+                    Text("INJECT MOCK SLEEP SESSION DATA", color = GrapeAccent, style = GrapeTypography.labelSmall)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SleepStatCard(
+    title: String,
+    value: String,
+    subText: String,
+    modifier: Modifier = Modifier
+) {
+    GlassCard(
+        modifier = modifier.height(110.dp),
+        cornerRadius = 24.dp
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.SpaceBetween
         ) {
             Text(
                 text = title,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Gray,
-                letterSpacing = 1.sp
+                style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                color = TextSecondary
             )
-            Row(
-                verticalAlignment = Alignment.Bottom
-            ) {
+            Column {
                 Text(
                     text = value,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Black,
-                    color = Color.White
+                    style = GrapeTypography.headlineLarge,
+                    color = TextPrimary
                 )
-                Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = unit,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.Gray,
-                    modifier = Modifier.padding(bottom = 6.dp)
+                    text = subText,
+                    style = GrapeTypography.labelSmall.copy(fontSize = 11.sp),
+                    color = TextSecondary
                 )
             }
         }
     }
 }
 
-@Composable
-fun SleepStagesChart(
-    rem: Double,
-    deep: Double,
-    light: Double,
-    awake: Double
-) {
-    val total = rem + deep + light + awake
-    val remPct = if (total > 0) rem / total else 0.0
-    val deepPct = if (total > 0) deep / total else 0.0
-    val lightPct = if (total > 0) light / total else 0.0
-    val awakePct = if (total > 0) awake / total else 0.0
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF16161A))
-    ) {
-        Column(
-            modifier = Modifier.padding(20.dp)
-        ) {
-            Text(
-                text = "SLEEP STAGES & ARCHITECTURE",
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.Gray,
-                letterSpacing = 1.sp
-            )
-            
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Canvas-drawn proportional segment bar
-            Canvas(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(24.dp)
-                    .clip(RoundedCornerShape(12.dp))
-            ) {
-                var currentX = 0f
-                val w = size.width
-
-                // Deep Sleep (Purple)
-                val deepW = (deepPct * w).toFloat()
-                drawRect(
-                    color = Color(0xFF7C3AED),
-                    topLeft = Offset(currentX, 0f),
-                    size = Size(deepW, size.height)
-                )
-                currentX += deepW
-
-                // REM Sleep (Pink/Cyan)
-                val remW = (remPct * w).toFloat()
-                drawRect(
-                    color = Color(0xFFEC4899),
-                    topLeft = Offset(currentX, 0f),
-                    size = Size(remW, size.height)
-                )
-                currentX += remW
-
-                // Light Sleep (Blue)
-                val lightW = (lightPct * w).toFloat()
-                drawRect(
-                    color = Color(0xFF3B82F6),
-                    topLeft = Offset(currentX, 0f),
-                    size = Size(lightW, size.height)
-                )
-                currentX += lightW
-
-                // Awake (Orange)
-                val awakeW = (awakePct * w).toFloat()
-                drawRect(
-                    color = Color(0xFFF59E0B),
-                    topLeft = Offset(currentX, 0f),
-                    size = Size(awakeW, size.height)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(20.dp))
-
-            // Stage proportions legends
-            Column(
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                SleepStageLegendRow(name = "DEEP", minutes = deep, color = Color(0xFF7C3AED), pct = deepPct * 100)
-                SleepStageLegendRow(name = "REM", minutes = rem, color = Color(0xFFEC4899), pct = remPct * 100)
-                SleepStageLegendRow(name = "LIGHT (CORE)", minutes = light, color = Color(0xFF3B82F6), pct = lightPct * 100)
-                SleepStageLegendRow(name = "AWAKE", minutes = awake, color = Color(0xFFF59E0B), pct = awakePct * 100)
-            }
-        }
-    }
-}
-
-@Composable
-fun SleepStageLegendRow(name: String, minutes: Double, color: Color, pct: Double) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(12.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(color)
-            )
-            Spacer(modifier = Modifier.width(8.dp))
-            Text(
-                text = name,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Bold,
-                color = Color.White
-            )
-        }
-        Text(
-            text = String.format("%.0f min (%.0f%%)", minutes, pct),
-            fontSize = 13.sp,
-            color = Color.Gray
-        )
-    }
-}

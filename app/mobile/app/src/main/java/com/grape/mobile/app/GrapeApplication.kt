@@ -4,6 +4,7 @@ import android.app.Application
 import com.grape.mobile.database.DatabaseHelper
 import com.grape.mobile.ble.GrapeBleManager
 import com.grape.mobile.repository.DeviceRepository
+import com.grape.mobile.repository.UpdateRepository
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.startKoin
@@ -26,6 +27,7 @@ class GrapeApplication : Application() {
                 databaseModule,
                 rustModule,
                 bleModule,
+                updateModule,
                 healthModule,
                 workerModule
             )
@@ -43,6 +45,10 @@ val rustModule = module {
 
 val bleModule = module {
     single { GrapeBleManager(androidContext(), get()) }
+}
+
+val updateModule = module {
+    single { UpdateRepository(androidContext()) }
 }
 
 val healthModule = module {
