@@ -1,9 +1,6 @@
 package com.grape.mobile.navigation
 
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.Favorite
@@ -134,6 +131,7 @@ fun AppNavigation(
 
     Scaffold(
         containerColor = Color.Transparent,
+        contentWindowInsets = WindowInsets.safeDrawing,
         bottomBar = {
             FloatingBottomBar(
                 tabs = tabItems,

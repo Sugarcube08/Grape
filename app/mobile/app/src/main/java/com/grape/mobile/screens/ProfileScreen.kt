@@ -426,14 +426,13 @@ fun ProfileScreen(repository: DeviceRepository) {
                     Button(
                         onClick = {
                             try {
-                                val dbFile = File(dbDiagnostics?.path ?: File(context.filesDir, "grape.sqlite").absolutePath)
-                                val destFile = File(context.getExternalFilesDir(null), "grape_export.sqlite")
-                                dbFile.inputStream().use { input ->
-                                    destFile.outputStream().use { output ->
-                                        input.copyTo(output)
-                                    }
+                                val dbPath = dbDiagnostics?.path ?: File(context.filesDir, "grape.sqlite").absolutePath
+                                val zipFile = com.grape.mobile.utils.ExportManager.exportDataBundle(context, dbPath)
+                                if (zipFile != null) {
+                                    com.grape.mobile.utils.ExportManager.shareExportFile(context, zipFile)
+                                } else {
+                                    Toast.makeText(context, "Export Failed: Could not build ZIP bundle", Toast.LENGTH_SHORT).show()
                                 }
-                                Toast.makeText(context, "Database exported: ${destFile.name}", Toast.LENGTH_LONG).show()
                             } catch (e: Exception) {
                                 Toast.makeText(context, "Export Failed: ${e.message}", Toast.LENGTH_SHORT).show()
                                 Timber.e(e, "DB export error")

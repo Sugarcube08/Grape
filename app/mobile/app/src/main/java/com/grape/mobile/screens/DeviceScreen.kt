@@ -5,6 +5,7 @@ import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -33,7 +34,9 @@ import androidx.compose.ui.unit.sp
 import com.grape.mobile.ble.BleState
 import com.grape.mobile.ble.GrapeBleManager
 import com.grape.mobile.ble.GrapeBleService
+import com.grape.mobile.ble.ReplayManager
 import com.grape.mobile.cdm.CompanionAssociationManager
+import kotlinx.coroutines.launch
 import com.grape.mobile.cdm.DeviceDiagnostics
 import com.grape.mobile.cdm.AssociationState
 import com.grape.mobile.cdm.DiagnosticStatus
@@ -61,6 +64,15 @@ fun DeviceScreen(
     val uiState by repository.uiState.collectAsState()
     val discoveredDevices by bleManager.discoveredDevices.collectAsState()
     val associationState by associationManager.state.collectAsState()
+
+    val scanCallbackFiring by bleManager.scanCallbackFiring.collectAsState()
+    val advertisementsSeen by bleManager.advertisementsSeen.collectAsState()
+    val whoopVisible by bleManager.whoopVisible.collectAsState()
+    val servicesDiscoveredCount by bleManager.servicesDiscoveredCount.collectAsState()
+    val characteristicsCount by bleManager.characteristicsCount.collectAsState()
+    val notificationsEnabledCount by bleManager.notificationsEnabledCount.collectAsState()
+    val packetsReceivedCount by bleManager.packetsReceivedCount.collectAsState()
+    val parserSuccessPercent by bleManager.parserSuccessPercent.collectAsState()
 
     var syncProgress by remember { mutableStateOf<String?>(null) }
     var currentSessionId by remember { mutableStateOf<String?>(null) }
@@ -135,8 +147,10 @@ fun DeviceScreen(
             Column(
                 modifier = Modifier
                     .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 24.dp)
-                    .padding(top = 24.dp, bottom = 140.dp) // Avoid navigation overlap
+                    .padding(top = 24.dp, bottom = 140.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp)
             ) {
                 // Header
                 Text(
@@ -146,17 +160,6 @@ fun DeviceScreen(
                     letterSpacing = 1.5.sp,
                     fontWeight = FontWeight.Bold
                 )
-
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Scrollable content containing all panels
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f)
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(20.dp)
-                ) {
                     // Device Connection Hero Card
                     val statusColor = when (bleState) {
                         BleState.Connected, BleState.Subscribed, BleState.Monitoring -> RecoveryGreen
@@ -309,7 +312,38 @@ fun DeviceScreen(
                                     }
                                 }
 
-                                if (bleState == BleState.Scanning) {
+                                if (isEmulator()) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(StressRed.copy(alpha = 0.1f))
+                                            .border(1.dp, StressRed.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                                            .padding(16.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(
+                                            text = "BLE unavailable",
+                                            color = StressRed,
+                                            style = GrapeTypography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "Running on Android Emulator",
+                                            color = TextPrimary,
+                                            style = GrapeTypography.bodyMedium,
+                                            modifier = Modifier.padding(top = 4.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        Text(
+                                            text = "Physical device required\nfor wearable testing",
+                                            color = TextSecondary,
+                                            style = GrapeTypography.bodySmall,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
+                                    }
+                                } else if (bleState == BleState.Scanning) {
                                     Spacer(modifier = Modifier.height(12.dp))
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -506,8 +540,89 @@ fun DeviceScreen(
                             HardwareRow(label = "Parsed Frames", value = "${uiState.framesParsed}")
                         }
                     }
+
+                    Spacer(modifier = Modifier.height(20.dp))
+
+                    // 5. BLE Developer / Connection Diagnostics
+                    Text(
+                        text = "BLE DEVELOPER DIAGNOSTICS",
+                        style = GrapeTypography.labelSmall,
+                        color = TextSecondary,
+                        letterSpacing = 1.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    GlassCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            HardwareRow(label = "Scan callback firing", value = if (scanCallbackFiring) "YES" else "NO")
+                            HardwareRow(label = "Advertisements seen", value = advertisementsSeen.toString())
+                            HardwareRow(label = "WHOOP visible", value = if (whoopVisible) "YES" else "NO")
+                            HardwareRow(label = "Services discovered", value = servicesDiscoveredCount.toString())
+                            HardwareRow(label = "Characteristics", value = characteristicsCount.toString())
+                            HardwareRow(label = "Notifications enabled", value = notificationsEnabledCount.toString())
+                            HardwareRow(label = "Packets received", value = packetsReceivedCount.toString())
+                            HardwareRow(label = "Parser success", value = String.format(java.util.Locale.US, "%.1f%%", parserSuccessPercent))
+
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+
+                            Text("Packet Replay Simulator", style = GrapeTypography.titleMedium, color = TextPrimary)
+                            Text("Feed mock wearable data to test physiology metrics and baseline calculations without physical hardware.", style = GrapeTypography.bodyMedium, color = TextSecondary)
+
+                            var replayingGen4 by remember { mutableStateOf(false) }
+                            var replayingGen5 by remember { mutableStateOf(false) }
+                            var replayMessage by remember { mutableStateOf<String?>(null) }
+                            val scope = rememberCoroutineScope()
+
+                            if (replayMessage != null) {
+                                Text(
+                                    text = replayMessage!!,
+                                    color = RecoveryGreen,
+                                    style = GrapeTypography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = {
+                                        scope.launch {
+                                            replayingGen4 = true
+                                            val res = ReplayManager.replayAssetDatabase(context, "gen4_packets.sqlite", repository)
+                                            replayingGen4 = false
+                                            replayMessage = if (res.isSuccess) "Gen 4 replayed ${res.getOrNull()} packets!" else "Failed: ${res.exceptionOrNull()?.message}"
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = GrapePrimary),
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    enabled = !replayingGen4 && !replayingGen5
+                                ) {
+                                    Text(if (replayingGen4) "REPLAYING..." else "GEN 4 DEMO", color = Color.White, style = GrapeTypography.labelMedium)
+                                }
+
+                                Button(
+                                    onClick = {
+                                        scope.launch {
+                                            replayingGen5 = true
+                                            val res = ReplayManager.replayAssetDatabase(context, "gen5_packets.sqlite", repository)
+                                            replayingGen5 = false
+                                            replayMessage = if (res.isSuccess) "Gen 5 replayed ${res.getOrNull()} packets!" else "Failed: ${res.exceptionOrNull()?.message}"
+                                        }
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = GrapeAccent),
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    enabled = !replayingGen4 && !replayingGen5
+                                ) {
+                                    Text(if (replayingGen5) "REPLAYING..." else "GEN 5 DEMO", color = Color.White, style = GrapeTypography.labelMedium)
+                                }
+                            }
+                        }
+                    }
                 }
-            }
 
             // Fallback BLE Scanner FAB
             if (bleState == BleState.Scanning || bleState == BleState.Discovered || bleState == BleState.Idle) {
@@ -554,4 +669,15 @@ fun HardwareRow(label: String, value: String) {
         Text(text = label, style = GrapeTypography.bodyLarge, color = TextSecondary)
         Text(text = value, style = GrapeTypography.bodyLarge, color = TextPrimary, fontWeight = FontWeight.Bold)
     }
+}
+
+fun isEmulator(): Boolean {
+    return (android.os.Build.FINGERPRINT.startsWith("generic")
+            || android.os.Build.FINGERPRINT.startsWith("unknown")
+            || android.os.Build.MODEL.contains("google_sdk")
+            || android.os.Build.MODEL.contains("Emulator")
+            || android.os.Build.MODEL.contains("Android SDK built for x86")
+            || android.os.Build.MANUFACTURER.contains("Genymotion")
+            || (android.os.Build.BRAND.startsWith("generic") && android.os.Build.DEVICE.startsWith("generic"))
+            || "google_sdk" == android.os.Build.PRODUCT)
 }
