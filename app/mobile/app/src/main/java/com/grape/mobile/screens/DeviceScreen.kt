@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -142,6 +143,10 @@ fun DeviceScreen(
         }
     }
 
+    val isConnected = bleState == BleState.Connected || bleState == BleState.Subscribed || bleState == BleState.Monitoring
+    val notificationsEnabled = notificationsEnabledCount > 0
+    val syncEnabled = isConnected && notificationsEnabled && packetsReceivedCount > 0
+
     BackgroundContainer {
         Box(modifier = Modifier.fillMaxSize()) {
             Column(
@@ -161,10 +166,21 @@ fun DeviceScreen(
                     fontWeight = FontWeight.Bold
                 )
                     // Device Connection Hero Card
-                    val statusColor = when (bleState) {
-                        BleState.Connected, BleState.Subscribed, BleState.Monitoring -> RecoveryGreen
-                        BleState.Scanning, BleState.Connecting -> GrapePrimary
-                        else -> StressRed
+                    val (statusText, statusColor) = remember(bleState, syncProgress) {
+                        if (syncProgress != null && (syncProgress!!.contains("Downloading") || syncProgress!!.contains("Parsing") || syncProgress!!.contains("Persisting"))) {
+                            Pair("HISTORICAL SYNC ACTIVE", Color(0xFF8B5CF6)) // Purple
+                        } else {
+                            when (bleState) {
+                                BleState.Idle -> Pair("DISCONNECTED", Color(0xFFEF4444)) // Red
+                                BleState.Scanning -> Pair("DISCOVERING SERVICES", Color(0xFFF59E0B)) // Orange
+                                BleState.Discovered -> Pair("DISCOVERING SERVICES", Color(0xFFF59E0B)) // Orange
+                                BleState.Connecting -> Pair("CONNECTING", Color(0xFFF59E0B)) // Orange
+                                BleState.Connected -> Pair("CONNECTED", Color(0xFF22C55E)) // Green
+                                BleState.Subscribed -> Pair("SUBSCRIBING", Color(0xFFF59E0B)) // Orange
+                                BleState.Monitoring -> Pair("RECEIVING PACKETS", Color(0xFF22C55E)) // Green
+                                BleState.Disconnected -> Pair("DISCONNECTED", Color(0xFFEF4444)) // Red
+                            }
+                        }
                     }
 
                     GlassCard(modifier = Modifier.fillMaxWidth()) {
@@ -191,7 +207,7 @@ fun DeviceScreen(
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
                                     Text(
-                                        text = bleState.name.uppercase(),
+                                        text = statusText,
                                         style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                         color = statusColor
                                     )
@@ -202,9 +218,17 @@ fun DeviceScreen(
                                 Button(
                                     onClick = { bleManager.disconnect() },
                                     colors = ButtonDefaults.buttonColors(containerColor = StressRed.copy(alpha = 0.8f)),
-                                    shape = RoundedCornerShape(12.dp)
+                                    modifier = Modifier.width(140.dp).height(52.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    contentPadding = PaddingValues(horizontal = 4.dp)
                                 ) {
-                                    Text("DISCONNECT", color = Color.White, style = GrapeTypography.labelLarge, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = "DISCONNECT",
+                                        color = Color.White,
+                                        style = GrapeTypography.labelLarge,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1
+                                    )
                                 }
                             }
                         }
@@ -248,21 +272,32 @@ fun DeviceScreen(
                                             }
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = GrapePrimary),
-                                        modifier = Modifier.weight(1f),
+                                        modifier = Modifier.weight(1f).height(52.dp),
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
                                         Text("RECONNECT", color = Color.White, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
                                     }
 
+                                    val forgetInteractionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
+                                    val forgetPressed by forgetInteractionSource.collectIsPressedAsState()
+                                    val forgetBg = if (forgetPressed) StressRed else GrapePrimary.copy(alpha = 0.15f)
+                                    val forgetText = if (forgetPressed) Color.White else TextPrimary
+                                    val forgetBorder = if (forgetPressed) null else androidx.compose.foundation.BorderStroke(1.dp, GrapePrimary.copy(alpha = 0.3f))
+
                                     Button(
                                         onClick = {
                                             associationManager.disassociate(primaryPair.first)
                                         },
-                                        colors = ButtonDefaults.buttonColors(containerColor = StressRed.copy(alpha = 0.2f)),
-                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = forgetBg,
+                                            contentColor = forgetText
+                                        ),
+                                        border = forgetBorder,
+                                        interactionSource = forgetInteractionSource,
+                                        modifier = Modifier.weight(1f).height(52.dp),
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
-                                        Text("FORGET DEVICE", color = StressRed, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
+                                        Text("FORGET DEVICE", color = forgetText, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             } else {
@@ -372,20 +407,20 @@ fun DeviceScreen(
                                 }
                             }
 
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            Button(
-                                onClick = {
-                                    diagnosticItems = diagnostics.runDiagnostics()
-                                    showDiagnostics = true
-                                },
-                                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.05f)),
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text("RUN DIAGNOSTICS", color = TextPrimary, style = GrapeTypography.labelLarge, fontWeight = FontWeight.Bold)
-                            }
                         }
+                    }
+
+                    Button(
+                        onClick = {
+                            diagnosticItems = diagnostics.runDiagnostics()
+                            showDiagnostics = true
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.05f)),
+                        modifier = Modifier.fillMaxWidth().height(52.dp),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))
+                    ) {
+                        Text("RUN DIAGNOSTICS", color = TextPrimary, style = GrapeTypography.labelLarge, fontWeight = FontWeight.Bold)
                     }
 
                     // 2. Diagnostics Results (Animated Panel)
@@ -495,14 +530,28 @@ fun DeviceScreen(
                                 }
                             } else {
                                 Column(modifier = Modifier.fillMaxWidth()) {
-                                    Text("No Sync Session", style = GrapeTypography.headlineMedium, color = TextPrimary)
-                                    Spacer(modifier = Modifier.height(4.dp))
-                                    Text("Connect a wearable to synchronize history.", style = GrapeTypography.bodyMedium, color = TextSecondary)
+                                    if (packetsReceivedCount == 0) {
+                                        Text("Historical Sync", style = GrapeTypography.headlineMedium, color = TextPrimary)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text("Unavailable", style = GrapeTypography.bodyMedium, color = StressRed, fontWeight = FontWeight.Bold)
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text("No wearable packets available. Replay mode recommended.", style = GrapeTypography.bodyMedium, color = TextSecondary)
+                                    } else {
+                                        Text("No Sync Session", style = GrapeTypography.headlineMedium, color = TextPrimary)
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text("Connect a wearable to synchronize history.", style = GrapeTypography.bodyMedium, color = TextSecondary)
+                                    }
                                 }
                             }
 
-                            if (currentSessionId == null && (bleState == BleState.Connected || bleState == BleState.Subscribed || bleState == BleState.Monitoring)) {
+                            if (currentSessionId == null) {
                                 Spacer(modifier = Modifier.height(16.dp))
+                                val buttonText = when {
+                                    !isConnected -> "Connect wearable first"
+                                    !notificationsEnabled -> "Enable notifications first"
+                                    packetsReceivedCount == 0 -> "No wearable packets available"
+                                    else -> "SYNC HISTORY"
+                                }
                                 Button(
                                     onClick = {
                                         val newSessionId = UUID.randomUUID().toString()
@@ -510,11 +559,20 @@ fun DeviceScreen(
                                         currentSessionId = newSessionId
                                         repository.beginHistoricalSync(context, newSessionId)
                                     },
-                                    colors = ButtonDefaults.buttonColors(containerColor = GrapePrimary),
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp)
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = if (syncEnabled) GrapePrimary else Color.White.copy(alpha = 0.05f),
+                                        disabledContainerColor = Color.White.copy(alpha = 0.05f)
+                                    ),
+                                    modifier = Modifier.fillMaxWidth().height(52.dp),
+                                    shape = RoundedCornerShape(12.dp),
+                                    enabled = syncEnabled
                                 ) {
-                                    Text("SYNC HISTORY", color = Color.White, style = GrapeTypography.labelLarge, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = buttonText,
+                                        color = if (syncEnabled) Color.White else TextSecondary,
+                                        style = GrapeTypography.labelLarge,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }
@@ -570,6 +628,9 @@ fun DeviceScreen(
 
                             var replayingGen4 by remember { mutableStateOf(false) }
                             var replayingGen5 by remember { mutableStateOf(false) }
+                            var replayingSleep by remember { mutableStateOf(false) }
+                            var replayingRecovery by remember { mutableStateOf(false) }
+                            var replayingStress by remember { mutableStateOf(false) }
                             var replayMessage by remember { mutableStateOf<String?>(null) }
                             val scope = rememberCoroutineScope()
 
@@ -582,42 +643,130 @@ fun DeviceScreen(
                                 )
                             }
 
-                            Row(
+                            val allReplayDisabled = replayingGen4 || replayingGen5 || replayingSleep || replayingRecovery || replayingStress
+
+                            Column(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Button(
-                                    onClick = {
-                                        scope.launch {
-                                            replayingGen4 = true
-                                            val res = ReplayManager.replayAssetDatabase(context, "gen4_packets.sqlite", repository)
-                                            replayingGen4 = false
-                                            replayMessage = if (res.isSuccess) "Gen 4 replayed ${res.getOrNull()} packets!" else "Failed: ${res.exceptionOrNull()?.message}"
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = GrapePrimary),
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    enabled = !replayingGen4 && !replayingGen5
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text(if (replayingGen4) "REPLAYING..." else "GEN 4 DEMO", color = Color.White, style = GrapeTypography.labelMedium)
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                replayingGen4 = true
+                                                val res = ReplayManager.replayAssetDatabase(context, "gen4_packets.sqlite", repository)
+                                                replayingGen4 = false
+                                                replayMessage = if (res.isSuccess) "Gen 4 replayed ${res.getOrNull()} packets!" else "Failed: ${res.exceptionOrNull()?.message}"
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = GrapePrimary),
+                                        modifier = Modifier.weight(1f).height(52.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        enabled = !allReplayDisabled
+                                    ) {
+                                        Text(if (replayingGen4) "REPLAYING..." else "Replay Gen4", color = Color.White, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                replayingGen5 = true
+                                                val res = ReplayManager.replayAssetDatabase(context, "gen5_packets.sqlite", repository)
+                                                replayingGen5 = false
+                                                replayMessage = if (res.isSuccess) "Gen 5 replayed ${res.getOrNull()} packets!" else "Failed: ${res.exceptionOrNull()?.message}"
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = GrapeAccent),
+                                        modifier = Modifier.weight(1f).height(52.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        enabled = !allReplayDisabled
+                                    ) {
+                                        Text(if (replayingGen5) "REPLAYING..." else "Replay Gen5", color = Color.White, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
+                                    }
                                 }
 
-                                Button(
-                                    onClick = {
-                                        scope.launch {
-                                            replayingGen5 = true
-                                            val res = ReplayManager.replayAssetDatabase(context, "gen5_packets.sqlite", repository)
-                                            replayingGen5 = false
-                                            replayMessage = if (res.isSuccess) "Gen 5 replayed ${res.getOrNull()} packets!" else "Failed: ${res.exceptionOrNull()?.message}"
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = GrapeAccent),
-                                    modifier = Modifier.weight(1f),
-                                    shape = RoundedCornerShape(8.dp),
-                                    enabled = !replayingGen4 && !replayingGen5
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Text(if (replayingGen5) "REPLAYING..." else "GEN 5 DEMO", color = Color.White, style = GrapeTypography.labelMedium)
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                replayingSleep = true
+                                                repository.insertMockSleepSession(
+                                                    startTimeUnixMs = System.currentTimeMillis() - 8 * 3600 * 1000,
+                                                    endTimeUnixMs = System.currentTimeMillis(),
+                                                    remMinutes = 95.0,
+                                                    deepMinutes = 110.0,
+                                                    coreMinutes = 235.0,
+                                                    awakeMinutes = 40.0
+                                                )
+                                                repository.refreshState()
+                                                replayingSleep = false
+                                                replayMessage = "Replayed Sleep session!"
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.05f)),
+                                        modifier = Modifier.weight(1f).height(52.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+                                        enabled = !allReplayDisabled
+                                    ) {
+                                        Text(if (replayingSleep) "REPLAYING..." else "Replay Sleep", color = TextPrimary, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                replayingRecovery = true
+                                                repository.insertMockRecoveryMetric(
+                                                    startTimeUnixMs = System.currentTimeMillis() - 24 * 3600 * 1000,
+                                                    endTimeUnixMs = System.currentTimeMillis(),
+                                                    restingHr = 56.0,
+                                                    hrv = 75.0,
+                                                    tempDelta = -0.1
+                                                )
+                                                repository.refreshState()
+                                                replayingRecovery = false
+                                                replayMessage = "Replayed Recovery metric!"
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.05f)),
+                                        modifier = Modifier.weight(1f).height(52.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+                                        enabled = !allReplayDisabled
+                                    ) {
+                                        Text(if (replayingRecovery) "REPLAYING..." else "Replay Recovery", color = TextPrimary, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                replayingStress = true
+                                                repository.insertMockStressMetric(
+                                                    stressScore = 0.38,
+                                                    state = "Low",
+                                                    hrvContribution = 0.22,
+                                                    tempContribution = 0.08,
+                                                    timestamp = System.currentTimeMillis()
+                                                )
+                                                repository.refreshState()
+                                                replayingStress = false
+                                                replayMessage = "Replayed Stress metric!"
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.05f)),
+                                        modifier = Modifier.weight(1f).height(52.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+                                        enabled = !allReplayDisabled
+                                    ) {
+                                        Text(if (replayingStress) "REPLAYING..." else "Replay Stress", color = TextPrimary, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
+                                    }
                                 }
                             }
                         }

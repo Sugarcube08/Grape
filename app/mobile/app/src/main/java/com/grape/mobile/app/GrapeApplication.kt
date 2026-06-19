@@ -42,7 +42,7 @@ val databaseModule = module {
     single { DatabaseHelper(androidContext()) }
     single { AssociationRepository(get()) }
     single { DeviceSettingsRepository(get()) }
-    single { DeviceDiagnostics(androidContext(), get()) }
+    single { DeviceDiagnostics(androidContext(), get(), get(), get()) }
 }
 
 val rustModule = module {

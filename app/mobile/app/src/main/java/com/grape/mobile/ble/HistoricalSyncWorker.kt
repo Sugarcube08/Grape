@@ -6,6 +6,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import android.os.Build
+import android.content.pm.ServiceInfo
 import androidx.core.app.NotificationCompat
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
@@ -39,28 +40,28 @@ class HistoricalSyncWorker(
 
     override suspend fun doWork(): Result {
         val sessionId = inputData.getString("session_id") ?: UUID.randomUUID().toString()
-        val dbPath = databaseHelper.getDatabasePath()
-        
-        setForeground(createForegroundInfo("Preparing historical sync..."))
-        
-        var oldestPage: Long = 0
-        var newestPage: Long = 0
-        var currentPage: Long = 0
-        var status = "QueryRange"
-        
-        val checkpoints = loadCheckpoints(sessionId)
-        if (checkpoints != null) {
-            oldestPage = checkpoints.first
-            newestPage = checkpoints.second
-            currentPage = checkpoints.third
-            Timber.d("Resuming sync session $sessionId from page $currentPage (Oldest: $oldestPage, Newest: $newestPage)")
-            status = "ReadPointer"
-        } else {
-            // Initialize session in SQLite
-            updateSession(sessionId, "QueryRange", 0, 0)
-        }
-        
         try {
+            val dbPath = databaseHelper.getDatabasePath()
+            
+            setForegroundSafely("Preparing historical sync...")
+            
+            var oldestPage: Long = 0
+            var newestPage: Long = 0
+            var currentPage: Long = 0
+            var status = "QueryRange"
+            
+            val checkpoints = loadCheckpoints(sessionId)
+            if (checkpoints != null) {
+                oldestPage = checkpoints.first
+                newestPage = checkpoints.second
+                currentPage = checkpoints.third
+                Timber.d("Resuming sync session $sessionId from page $currentPage (Oldest: $oldestPage, Newest: $newestPage)")
+                status = "ReadPointer"
+            } else {
+                // Initialize session in SQLite
+                updateSession(sessionId, "QueryRange", 0, 0)
+            }
+            
             val incomingFlow = bleManager.incomingFrames
             
             if (status == "QueryRange") {
@@ -70,28 +71,28 @@ class HistoricalSyncWorker(
                 
                 var rangeResponseReceived = false
                 withTimeoutOrNull(10000) {
-                incomingFlow.collect { frame ->
-                    delay(50) // wait for DB insert to complete
-                    val latestParsed = getLatestParsedFrame(dbPath)
-                    if (latestParsed != null && latestParsed.responseToCommand == 34) {
-                        val pages = parsePagesFromHex(latestParsed.dataHex)
-                        if (pages != null) {
-                            oldestPage = pages.first
-                            newestPage = pages.second
-                            currentPage = oldestPage
-                            rangeResponseReceived = true
-                            throw CancellationException("Range response received")
+                    incomingFlow.collect { frame ->
+                        delay(50) // wait for DB insert to complete
+                        val latestParsed = getLatestParsedFrame(dbPath)
+                        if (latestParsed != null && latestParsed.responseToCommand == 34) {
+                            val pages = parsePagesFromHex(latestParsed.dataHex)
+                            if (pages != null) {
+                                oldestPage = pages.first
+                                newestPage = pages.second
+                                currentPage = oldestPage
+                                rangeResponseReceived = true
+                                throw CancellationException("Range response received")
+                            }
                         }
                     }
                 }
+                
+                if (!rangeResponseReceived) {
+                    Timber.e("Timeout waiting for data range response")
+                    updateSession(sessionId, "Failed", 0, 0)
+                    return Result.failure()
+                }
             }
-            
-            if (!rangeResponseReceived) {
-                Timber.e("Timeout waiting for data range response")
-                updateSession(sessionId, "Failed", 0, 0)
-                return Result.failure()
-            }
-        }
             
             Timber.d("Data range received: Oldest=$oldestPage, Newest=$newestPage")
             updateSessionProgress(sessionId, "oldest_page", oldestPage.toString())
@@ -111,7 +112,7 @@ class HistoricalSyncWorker(
             // 4. Start downloading (opcode 22)
             status = "Downloading"
             updateSession(sessionId, status, 0, 0)
-            setForeground(createForegroundInfo("Downloading historical data (0%)..."))
+            setForegroundSafely("Downloading historical data (0%)...")
             Timber.d("Sending send_historical_data command (22)")
             bleManager.writeCommand(22, byteArrayOf())
             
@@ -141,7 +142,7 @@ class HistoricalSyncWorker(
                             updateSession(sessionId, "Downloading", bytesDownloaded, packetsDownloaded)
                             val totalPages = (newestPage - oldestPage).coerceAtLeast(1)
                             val progressPercent = (packetsDownloaded * 100 / (totalPages * 50).coerceAtLeast(1)).coerceIn(0, 99)
-                            setForeground(createForegroundInfo("Downloading historical data ($progressPercent%)..."))
+                            setForegroundSafely("Downloading historical data ($progressPercent%)...")
                         }
 
                         delay(30)
@@ -172,30 +173,38 @@ class HistoricalSyncWorker(
             // 5. Parsing & Persisting
             status = "Parsing"
             updateSession(sessionId, status, bytesDownloaded, packetsDownloaded)
-            setForeground(createForegroundInfo("Parsing and syncing data..."))
+            setForegroundSafely("Parsing and syncing data...")
             delay(500)
             
             status = "Persisting"
             updateSession(sessionId, status, bytesDownloaded, packetsDownloaded)
-            setForeground(createForegroundInfo("Persisting to database..."))
+            setForegroundSafely("Persisting to database...")
             delay(500)
             
             // 6. Complete
             status = "Completed"
             updateSession(sessionId, status, bytesDownloaded, packetsDownloaded)
             updateSessionEnded(sessionId, status)
-            setForeground(createForegroundInfo("Historical sync completed successfully."))
+            setForegroundSafely("Historical sync completed successfully.")
             
             return Result.success()
             
         } catch (e: CancellationException) {
-            if (status == "Completed") return Result.success()
-        } catch (e: Exception) {
+            throw e
+        } catch (e: Throwable) {
             Timber.e(e, "Error running historical sync")
         }
         
         updateSession(sessionId, "Failed", 0, 0)
         return Result.failure()
+    }
+
+    private suspend fun setForegroundSafely(progressText: String) {
+        try {
+            setForeground(createForegroundInfo(progressText))
+        } catch (t: Throwable) {
+            Timber.e(t, "Failed to set foreground service info: $progressText")
+        }
     }
 
     private fun createForegroundInfo(progressText: String): ForegroundInfo {
@@ -215,7 +224,11 @@ class HistoricalSyncWorker(
             .setOngoing(true)
             .build()
 
-        return ForegroundInfo(2, notification)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(2, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
+        } else {
+            ForegroundInfo(2, notification)
+        }
     }
 
     private fun getLatestParsedFrame(dbPath: String): ParsedFrameRow? {
@@ -231,12 +244,12 @@ class HistoricalSyncWorker(
                 val packetType = cursor.getInt(0)
                 val jsonStr = cursor.getString(1) ?: "{}"
                 val json = org.json.JSONObject(jsonStr)
-                val responseToCmd = if (json.has("response_to_command")) json.getInt("response_to_command") else null
-                val eventName = if (json.has("event_name")) json.getString("event_name") else null
-                val dataHex = if (json.has("data_hex")) json.getString("data_hex") else ""
+                val responseToCmd = if (json.has("response_to_command")) json.optInt("response_to_command", -1).takeIf { it != -1 } else null
+                val eventName = if (json.has("event_name")) json.optString("event_name", "").takeIf { it.isNotEmpty() } else null
+                val dataHex = if (json.has("data_hex")) json.optString("data_hex", "") else ""
                 return ParsedFrameRow(packetType, responseToCmd, eventName, dataHex)
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Timber.e(e, "Error reading latest parsed frame")
         } finally {
             cursor?.close()
@@ -248,7 +261,7 @@ class HistoricalSyncWorker(
     private fun parsePagesFromHex(dataHex: String): Pair<Long, Long>? {
         val bytes = try {
             dataHex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             return null
         }
         if (bytes.size < 8) return null
@@ -331,7 +344,7 @@ class HistoricalSyncWorker(
                 }.format(java.util.Date()))
                 db.insert("sync_sessions", null, cv)
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Timber.e(e, "Error updating sync session")
         } finally {
             db?.close()
@@ -350,7 +363,7 @@ class HistoricalSyncWorker(
                 }.format(java.util.Date()))
             }
             db.update("sync_sessions", cv, "session_id = ?", arrayOf(sessionId))
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Timber.e(e, "Error updating sync session end")
         } finally {
             db?.close()
@@ -368,7 +381,7 @@ class HistoricalSyncWorker(
                 put("checkpoint_value", value)
             }
             db.insertWithOnConflict("sync_progress", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Timber.e(e, "Error updating sync progress")
         } finally {
             db?.close()
@@ -394,7 +407,7 @@ class HistoricalSyncWorker(
                 put("frame_hex", frameHex)
             }
             db.insert("historical_packets", null, cv)
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Timber.e(e, "Error inserting historical packet metadata")
         } finally {
             db?.close()
@@ -423,7 +436,7 @@ class HistoricalSyncWorker(
             if (oldest != null && newest != null && current != null) {
                 return Triple(oldest, newest, current)
             }
-        } catch (e: Exception) {
+        } catch (e: Throwable) {
             Timber.e(e, "Error loading checkpoints from DB")
         } finally {
             cursor?.close()

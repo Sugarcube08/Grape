@@ -22,6 +22,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import com.grape.mobile.theme.*
 
 data class NavigationTabItem(
@@ -37,20 +39,42 @@ fun FloatingBottomBar(
     onTabSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isAtLeastS = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+    val backgroundColor = if (isAtLeastS) Color.White.copy(alpha = 0.05f) else Color.White.copy(alpha = 0.06f)
+    
+    val blurModifier = if (isAtLeastS) {
+        Modifier.graphicsLayer {
+            renderEffect = android.graphics.RenderEffect.createBlurEffect(
+                20f,
+                20f,
+                android.graphics.Shader.TileMode.CLAMP
+            ).asComposeRenderEffect()
+        }
+    } else {
+        Modifier
+    }
+
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 12.dp)
-            .height(78.dp)
-            .clip(RoundedCornerShape(32.dp))
-            .background(Color.White.copy(alpha = 0.05f))
-            .border(
-                width = 1.dp,
-                color = Color.White.copy(alpha = 0.10f),
-                shape = RoundedCornerShape(32.dp)
-            ),
+            .padding(start = 16.dp, end = 16.dp, bottom = 24.dp)
+            .height(78.dp),
         contentAlignment = Alignment.Center
     ) {
+        // Blurred background layer
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .then(blurModifier)
+                .clip(RoundedCornerShape(28.dp))
+                .background(backgroundColor)
+                .border(
+                    width = 1.dp,
+                    color = Color.White.copy(alpha = 0.10f),
+                    shape = RoundedCornerShape(28.dp)
+                )
+        )
+
         Row(
             modifier = Modifier
                 .fillMaxSize()

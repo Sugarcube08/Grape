@@ -8,9 +8,14 @@ import java.io.File
 import java.io.FileNotFoundException
 
 object ReplayManager {
+    var isReplayActive: Boolean = false
+        private set
+
     fun replayCaptureDatabase(context: Context, sourceFile: File, deviceRepository: DeviceRepository): Result<Int> {
+        isReplayActive = true
         return try {
             if (!sourceFile.exists()) {
+                isReplayActive = false
                 return Result.failure(FileNotFoundException("Source file does not exist: ${sourceFile.absolutePath}"))
             }
             
@@ -38,6 +43,8 @@ object ReplayManager {
         } catch (e: Exception) {
             Timber.e(e, "Error replaying capture database: ${e.message}")
             Result.failure(e)
+        } finally {
+            isReplayActive = false
         }
     }
 

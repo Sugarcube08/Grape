@@ -4,10 +4,15 @@ import android.Manifest
 import android.bluetooth.BluetoothAdapter
 import android.content.Context
 import android.content.pm.PackageManager
+import android.database.sqlite.SQLiteDatabase
 import android.location.LocationManager
 import android.os.Build
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
+import com.grape.mobile.database.DatabaseHelper
+import com.grape.mobile.repository.DeviceRepository
+import com.grape.mobile.ble.ReplayManager
+import timber.log.Timber
 
 enum class DiagnosticStatus {
     PASS,
@@ -23,7 +28,9 @@ data class DiagnosticItem(
 
 class DeviceDiagnostics(
     private val context: Context,
-    private val associationRepository: AssociationRepository
+    private val associationRepository: AssociationRepository,
+    private val databaseHelper: DatabaseHelper,
+    private val deviceRepository: DeviceRepository
 ) {
 
     fun runDiagnostics(): List<DiagnosticItem> {
@@ -109,6 +116,41 @@ class DeviceDiagnostics(
         // 8. Internet Permission
         val hasInternet = ContextCompat.checkSelfPermission(context, Manifest.permission.INTERNET) == PackageManager.PERMISSION_GRANTED
         list.add(DiagnosticItem("Internet Permission", if (hasInternet) DiagnosticStatus.PASS else DiagnosticStatus.FAIL, if (hasInternet) "Granted" else "Missing"))
+
+        // --- Hardwareless & Data Statistics Diagnostics ---
+        var packetsReceived = 0L
+        var packetsParsed = 0L
+        var insightsCount = 0L
+        var baselinesCount = 0L
+
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openDatabase(databaseHelper.getDatabasePath(), null, SQLiteDatabase.OPEN_READONLY)
+            
+            db.rawQuery("SELECT COUNT(*) FROM historical_packets", null).use { cursor ->
+                if (cursor.moveToFirst()) packetsReceived = cursor.getLong(0)
+            }
+            db.rawQuery("SELECT COUNT(*) FROM decoded_frames", null).use { cursor ->
+                if (cursor.moveToFirst()) packetsParsed = cursor.getLong(0)
+            }
+            db.rawQuery("SELECT COUNT(*) FROM insights", null).use { cursor ->
+                if (cursor.moveToFirst()) insightsCount = cursor.getLong(0)
+            }
+            db.rawQuery("SELECT COUNT(*) FROM baseline_daily", null).use { cursor ->
+                if (cursor.moveToFirst()) baselinesCount = cursor.getLong(0)
+            }
+        } catch (t: Throwable) {
+            Timber.e(t, "Error running diagnostic DB queries")
+        } finally {
+            db?.close()
+        }
+
+        list.add(DiagnosticItem("Packets Received", DiagnosticStatus.PASS, "$packetsReceived"))
+        list.add(DiagnosticItem("Packets Parsed", DiagnosticStatus.PASS, "$packetsParsed"))
+        list.add(DiagnosticItem("Parser Errors", if (deviceRepository.parserErrorCount > 0) DiagnosticStatus.WARN else DiagnosticStatus.PASS, "${deviceRepository.parserErrorCount}"))
+        list.add(DiagnosticItem("Insights Generated", DiagnosticStatus.PASS, "$insightsCount"))
+        list.add(DiagnosticItem("Baselines Updated", DiagnosticStatus.PASS, "$baselinesCount"))
+        list.add(DiagnosticItem("Replay Active", if (ReplayManager.isReplayActive) DiagnosticStatus.WARN else DiagnosticStatus.PASS, if (ReplayManager.isReplayActive) "Active" else "Inactive"))
 
         return list
     }

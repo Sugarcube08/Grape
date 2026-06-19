@@ -32,7 +32,8 @@ data class DeviceUiState(
     val heartRate: Int = 0,
     val batteryPercent: Int = 0,
     val packetsReceived: Int = 0,
-    val framesParsed: Int = 0
+    val framesParsed: Int = 0,
+    val parserErrorCount: Int = 0
 )
 
 data class UserProfile(
@@ -58,6 +59,9 @@ data class ConnectedDevice(
 class DeviceRepository(private val databaseHelper: DatabaseHelper) {
     private val _uiState = MutableStateFlow(DeviceUiState())
     val uiState: StateFlow<DeviceUiState> = _uiState.asStateFlow()
+
+    var parserErrorCount = 0
+        private set
 
     init {
         // Delayed initialization: refreshState() is called from the UI (DashboardScreen) to prevent startup crash if FFI load fails.
@@ -96,8 +100,12 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
     fun insertWhoopPacket(frameHex: String, deviceType: String) {
         try {
             val json = GrapeRustBridge.insertPacket(dbPath, frameHex, deviceType)
+            if (json.contains("\"error\":")) {
+                parserErrorCount++
+            }
             parseAndApplyState(json)
         } catch (t: Throwable) {
+            parserErrorCount++
             Timber.e(t, "Error calling Rust insertWhoopPacket")
         }
     }
@@ -119,7 +127,8 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
                 heartRate = json.optInt("heart_rate", 0),
                 batteryPercent = json.optInt("battery", 0),
                 packetsReceived = json.optInt("packets_received", 0),
-                framesParsed = json.optInt("frames_parsed", 0)
+                framesParsed = json.optInt("frames_parsed", 0),
+                parserErrorCount = parserErrorCount
             )
             _uiState.value = state
             Timber.d("Device uiState updated: $state")
@@ -129,18 +138,26 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
     }
 
     fun beginHistoricalSync(context: Context, sessionId: String) {
-        val workRequest = OneTimeWorkRequestBuilder<HistoricalSyncWorker>()
-            .setInputData(workDataOf("session_id" to sessionId))
-            .build()
-        WorkManager.getInstance(context).enqueueUniqueWork(
-            "historical_sync",
-            ExistingWorkPolicy.REPLACE,
-            workRequest
-        )
+        try {
+            val workRequest = OneTimeWorkRequestBuilder<HistoricalSyncWorker>()
+                .setInputData(workDataOf("session_id" to sessionId))
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "historical_sync",
+                ExistingWorkPolicy.REPLACE,
+                workRequest
+            )
+        } catch (t: Throwable) {
+            Timber.e(t, "Error calling WorkManager.enqueueUniqueWork")
+        }
     }
 
     fun abortHistoricalSync(context: Context) {
-        WorkManager.getInstance(context).cancelUniqueWork("historical_sync")
+        try {
+            WorkManager.getInstance(context).cancelUniqueWork("historical_sync")
+        } catch (t: Throwable) {
+            Timber.e(t, "Error calling WorkManager.cancelUniqueWork")
+        }
     }
 
     fun resumeHistoricalSync(context: Context, sessionId: String) {
@@ -279,6 +296,36 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
             Timber.d("Inserted mock recovery metric: $metricId")
         } catch (e: Exception) {
             Timber.e(e, "Error inserting mock recovery metric")
+        } finally {
+            db?.close()
+        }
+    }
+
+    fun insertMockStressMetric(
+        stressScore: Double,
+        state: String,
+        hrvContribution: Double,
+        tempContribution: Double,
+        timestamp: Long
+    ) {
+        if (!BuildConfig.DEBUG) {
+            Timber.w("Rejecting mock stress metric insertion in release mode")
+            return
+        }
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            val cv = ContentValues().apply {
+                put("stress_score", stressScore)
+                put("state", state)
+                put("hrv_contribution", hrvContribution)
+                put("temp_contribution", tempContribution)
+                put("timestamp", timestamp)
+            }
+            db.insert("daily_stress_metrics", null, cv)
+            Timber.d("Inserted mock stress metric: $stressScore ($state)")
+        } catch (e: Exception) {
+            Timber.e(e, "Error inserting mock stress metric")
         } finally {
             db?.close()
         }
