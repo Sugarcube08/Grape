@@ -152,6 +152,7 @@ class GrapeBleManager(
                     Timber.d("GATT Connected to: ${gatt.device.name}")
                     _state.value = BleState.Connected
                     repository.updateConnectionState("CONNECTED")
+                    repository.setSyncStage("Connected")
                     // Start service discovery
                     handler.post {
                         gatt.discoverServices()
@@ -174,6 +175,7 @@ class GrapeBleManager(
 
             Timber.d("Services discovered successfully")
             _state.value = BleState.Subscribed
+            repository.setSyncStage("Services discovered")
 
             // Log discovered services and characteristics
             gatt.services.forEach { service ->
@@ -495,6 +497,7 @@ class GrapeBleManager(
         val hasGen4 = gatt.getService(WHOOP_GEN4_SERVICE) != null
         currentDeviceType = if (hasGen4) "maverick" else "puffin"
         frameAccumulator = FrameAccumulator(currentDeviceType)
+        repository.setSyncStage("Notifications enabled")
     }
 
     private var packetCount = 0

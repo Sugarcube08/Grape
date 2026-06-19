@@ -432,7 +432,7 @@ fun DeviceScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "DIAGNOSTICS REPORT",
+                                    text = "SYNC DIAGNOSTICS",
                                     style = GrapeTypography.labelSmall,
                                     color = TextSecondary,
                                     letterSpacing = 1.5.sp,
@@ -631,6 +631,7 @@ fun DeviceScreen(
                             var replayingSleep by remember { mutableStateOf(false) }
                             var replayingRecovery by remember { mutableStateOf(false) }
                             var replayingStress by remember { mutableStateOf(false) }
+                            var replayingStrain by remember { mutableStateOf(false) }
                             var replayMessage by remember { mutableStateOf<String?>(null) }
                             val scope = rememberCoroutineScope()
 
@@ -643,7 +644,7 @@ fun DeviceScreen(
                                 )
                             }
 
-                            val allReplayDisabled = replayingGen4 || replayingGen5 || replayingSleep || replayingRecovery || replayingStress
+                            val allReplayDisabled = replayingGen4 || replayingGen5 || replayingSleep || replayingRecovery || replayingStress || replayingStrain
 
                             Column(
                                 modifier = Modifier.fillMaxWidth(),
@@ -742,7 +743,12 @@ fun DeviceScreen(
                                     ) {
                                         Text(if (replayingRecovery) "REPLAYING..." else "Replay Recovery", color = TextPrimary, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
                                     }
+                                }
 
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
                                     Button(
                                         onClick = {
                                             scope.launch {
@@ -766,6 +772,31 @@ fun DeviceScreen(
                                         enabled = !allReplayDisabled
                                     ) {
                                         Text(if (replayingStress) "REPLAYING..." else "Replay Stress", color = TextPrimary, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            scope.launch {
+                                                replayingStrain = true
+                                                repository.insertMockStrainMetric(
+                                                    strainScore = 14.5,
+                                                    averageHr = 132.0,
+                                                    maxHr = 175.0,
+                                                    calories = 2400,
+                                                    timestamp = System.currentTimeMillis()
+                                                )
+                                                repository.refreshState()
+                                                replayingStrain = false
+                                                replayMessage = "Replayed Strain metric!"
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.05f)),
+                                        modifier = Modifier.weight(1f).height(52.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color.White.copy(alpha = 0.10f)),
+                                        enabled = !allReplayDisabled
+                                    ) {
+                                        Text(if (replayingStrain) "REPLAYING..." else "Replay Strain", color = TextPrimary, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
                                     }
                                 }
                             }

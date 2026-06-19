@@ -12,8 +12,8 @@ android {
         applicationId = "com.grape.mobile"
         minSdk = 29
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.3.1-alpha"
+        versionCode = 5
+        versionName = "0.3.2-beta"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -65,6 +65,9 @@ dependencies {
 
     // WorkManager
     implementation("androidx.work:work-runtime-ktx:2.10.0")
+
+    // Backdrop Blur
+    implementation("dev.chrisbanes.haze:haze:1.1.1")
 
 
     // Vico Charts

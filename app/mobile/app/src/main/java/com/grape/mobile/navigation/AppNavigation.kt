@@ -28,6 +28,8 @@ import com.grape.mobile.screens.ProfileScreen
 import com.grape.mobile.ui.components.FloatingBottomBar
 import com.grape.mobile.ui.components.NavigationTabItem
 import com.grape.mobile.theme.*
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.haze
 
 sealed class Screen(val route: String, val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
     object Home : Screen("home", "Home", Icons.Rounded.Home)
@@ -42,6 +44,7 @@ fun AppNavigation(
     repository: DeviceRepository,
     updateRepository: UpdateRepository
 ) {
+    val hazeState = remember { HazeState() }
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -134,6 +137,7 @@ fun AppNavigation(
         contentWindowInsets = WindowInsets.safeDrawing,
         bottomBar = {
             FloatingBottomBar(
+                hazeState = hazeState,
                 tabs = tabItems,
                 currentRoute = currentRoute,
                 onTabSelected = { route ->
@@ -151,7 +155,10 @@ fun AppNavigation(
         NavHost(
             navController = navController,
             startDestination = Screen.Home.route,
-            modifier = Modifier.padding(top = innerPadding.calculateTopPadding())
+            modifier = Modifier
+                .fillMaxSize()
+                .haze(hazeState)
+                .padding(top = innerPadding.calculateTopPadding())
         ) {
             composable(Screen.Home.route) {
                 DashboardScreen(bleManager, repository)

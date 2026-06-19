@@ -119,25 +119,80 @@ class DeviceDiagnostics(
 
         // --- Hardwareless & Data Statistics Diagnostics ---
         var packetsReceived = 0L
+        var packetsStored = 0L
         var packetsParsed = 0L
-        var insightsCount = 0L
+        var parserErrors = 0L
+        var hrCount = 0L
+        var hrvCount = 0L
+        var stressCount = 0L
+        var sleepStored = 0L
+        var recoveryStored = 0L
+        var stressStored = 0L
+        var strainStored = 0L
         var baselinesCount = 0L
+        var trendsCount = 0L
+        var insightsCount = 0L
+        var currentStage = "Unknown"
+        var lastException = "None"
 
         var db: SQLiteDatabase? = null
         try {
             db = SQLiteDatabase.openDatabase(databaseHelper.getDatabasePath(), null, SQLiteDatabase.OPEN_READONLY)
             
-            db.rawQuery("SELECT COUNT(*) FROM historical_packets", null).use { cursor ->
+            db.rawQuery("SELECT value FROM device_settings WHERE key = 'current_stage'", null).use { cursor ->
+                if (cursor.moveToFirst()) currentStage = cursor.getString(0) ?: "Unknown"
+            }
+            db.rawQuery("SELECT value FROM device_settings WHERE key = 'last_exception'", null).use { cursor ->
+                if (cursor.moveToFirst()) lastException = cursor.getString(0) ?: "None"
+            }
+            
+            db.rawQuery("SELECT SUM(packets_downloaded) FROM sync_sessions", null).use { cursor ->
                 if (cursor.moveToFirst()) packetsReceived = cursor.getLong(0)
+            }
+            db.rawQuery("SELECT COUNT(*) FROM historical_packets", null).use { cursor ->
+                if (cursor.moveToFirst()) packetsStored = cursor.getLong(0)
             }
             db.rawQuery("SELECT COUNT(*) FROM decoded_frames", null).use { cursor ->
                 if (cursor.moveToFirst()) packetsParsed = cursor.getLong(0)
             }
-            db.rawQuery("SELECT COUNT(*) FROM insights", null).use { cursor ->
-                if (cursor.moveToFirst()) insightsCount = cursor.getLong(0)
+            db.rawQuery("SELECT SUM(parser_errors) FROM sync_sessions", null).use { cursor ->
+                if (cursor.moveToFirst()) parserErrors = cursor.getLong(0)
             }
+            if (parserErrors == 0L) {
+                parserErrors = deviceRepository.parserErrorCount.toLong()
+            }
+            
+            db.rawQuery("SELECT COUNT(*) FROM metric_events WHERE metric_type = 'HR'", null).use { cursor ->
+                if (cursor.moveToFirst()) hrCount = cursor.getLong(0)
+            }
+            db.rawQuery("SELECT COUNT(*) FROM metric_events WHERE metric_type = 'HRV'", null).use { cursor ->
+                if (cursor.moveToFirst()) hrvCount = cursor.getLong(0)
+            }
+            db.rawQuery("SELECT COUNT(*) FROM metric_events WHERE metric_type = 'Stress'", null).use { cursor ->
+                if (cursor.moveToFirst()) stressCount = cursor.getLong(0)
+            }
+            
+            db.rawQuery("SELECT COUNT(*) FROM daily_sleep_metrics", null).use { cursor ->
+                if (cursor.moveToFirst()) sleepStored = cursor.getLong(0)
+            }
+            db.rawQuery("SELECT COUNT(*) FROM daily_recovery_metrics", null).use { cursor ->
+                if (cursor.moveToFirst()) recoveryStored = cursor.getLong(0)
+            }
+            db.rawQuery("SELECT COUNT(*) FROM daily_stress_metrics", null).use { cursor ->
+                if (cursor.moveToFirst()) stressStored = cursor.getLong(0)
+            }
+            db.rawQuery("SELECT COUNT(*) FROM daily_strain_metrics", null).use { cursor ->
+                if (cursor.moveToFirst()) strainStored = cursor.getLong(0)
+            }
+
             db.rawQuery("SELECT COUNT(*) FROM baseline_daily", null).use { cursor ->
                 if (cursor.moveToFirst()) baselinesCount = cursor.getLong(0)
+            }
+            db.rawQuery("SELECT COUNT(*) FROM trend_summary", null).use { cursor ->
+                if (cursor.moveToFirst()) trendsCount = cursor.getLong(0)
+            }
+            db.rawQuery("SELECT COUNT(*) FROM insights", null).use { cursor ->
+                if (cursor.moveToFirst()) insightsCount = cursor.getLong(0)
             }
         } catch (t: Throwable) {
             Timber.e(t, "Error running diagnostic DB queries")
@@ -145,12 +200,26 @@ class DeviceDiagnostics(
             db?.close()
         }
 
+        val connectionState = deviceRepository.uiState.value.connectionState
+        val connectionPassed = connectionState == "CONNECTED" || connectionState == "SUBSCRIBED" || connectionState == "RECEIVING PACKETS"
+        list.add(DiagnosticItem("Connection", if (connectionPassed) DiagnosticStatus.PASS else DiagnosticStatus.WARN, connectionState))
+        list.add(DiagnosticItem("Current Stage", DiagnosticStatus.PASS, currentStage))
+        list.add(DiagnosticItem("Last Exception", if (lastException == "None" || lastException.isEmpty()) DiagnosticStatus.PASS else DiagnosticStatus.FAIL, lastException))
+
+        val notificationsExpected = 7
+        val notificationsEnabled = if (connectionState == "SUBSCRIBED" || connectionState == "RECEIVING PACKETS") 7 else 0
+        list.add(DiagnosticItem("Notifications", if (notificationsEnabled == notificationsExpected) DiagnosticStatus.PASS else DiagnosticStatus.WARN, "$notificationsEnabled / $notificationsExpected"))
+
         list.add(DiagnosticItem("Packets Received", DiagnosticStatus.PASS, "$packetsReceived"))
+        list.add(DiagnosticItem("Packets Stored", DiagnosticStatus.PASS, "$packetsStored"))
         list.add(DiagnosticItem("Packets Parsed", DiagnosticStatus.PASS, "$packetsParsed"))
-        list.add(DiagnosticItem("Parser Errors", if (deviceRepository.parserErrorCount > 0) DiagnosticStatus.WARN else DiagnosticStatus.PASS, "${deviceRepository.parserErrorCount}"))
-        list.add(DiagnosticItem("Insights Generated", DiagnosticStatus.PASS, "$insightsCount"))
+        list.add(DiagnosticItem("Parser Errors", if (parserErrors > 0) DiagnosticStatus.WARN else DiagnosticStatus.PASS, "$parserErrors"))
+        list.add(DiagnosticItem("Metrics Extracted", DiagnosticStatus.PASS, "HR $hrCount, HRV $hrvCount, Stress $stressCount"))
+        list.add(DiagnosticItem("Metrics Stored", DiagnosticStatus.PASS, "Sleep $sleepStored, Recovery $recoveryStored, Stress $stressStored, Strain $strainStored"))
         list.add(DiagnosticItem("Baselines Updated", DiagnosticStatus.PASS, "$baselinesCount"))
-        list.add(DiagnosticItem("Replay Active", if (ReplayManager.isReplayActive) DiagnosticStatus.WARN else DiagnosticStatus.PASS, if (ReplayManager.isReplayActive) "Active" else "Inactive"))
+        list.add(DiagnosticItem("Trend Entries", DiagnosticStatus.PASS, "$trendsCount"))
+        list.add(DiagnosticItem("Insights Generated", DiagnosticStatus.PASS, "$insightsCount"))
+        list.add(DiagnosticItem("Replay Active", if (ReplayManager.isReplayActive) DiagnosticStatus.WARN else DiagnosticStatus.PASS, if (ReplayManager.isReplayActive) "YES" else "NO"))
 
         return list
     }

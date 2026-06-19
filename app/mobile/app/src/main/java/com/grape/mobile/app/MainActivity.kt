@@ -109,6 +109,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startWearableSyncService() {
+        if (com.grape.mobile.ble.GrapeBleService.isRunning()) {
+            Timber.d("GrapeBleService is already running; skipping redundant start.")
+            return
+        }
         try {
             val serviceIntent = Intent(this, GrapeBleService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

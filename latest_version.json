@@ -1,10 +1,12 @@
 {
-  "version": "0.3.1-alpha",
-  "build": 4,
+  "version": "0.3.2-beta",
+  "build": 5,
   "mandatory": false,
   "notes": [
-    "Export verification",
-    "DeviceScreen layout fix",
-    "Blurred navigation bar"
+    "Compose startup stabilization",
+    "Haze rendering fix",
+    "BLE scan improvements",
+    "Foreground service compliance",
+    "Reduced main-thread blocking"
   ]
 }

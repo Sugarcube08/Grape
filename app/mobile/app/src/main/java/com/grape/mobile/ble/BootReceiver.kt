@@ -10,6 +10,10 @@ import timber.log.Timber
 class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
+            if (GrapeBleService.isRunning()) {
+                Timber.d("GrapeBleService is already running; skipping start on boot.")
+                return
+            }
             Timber.d("Boot completed: Restarting GrapeBleService")
             val serviceIntent = Intent(context, GrapeBleService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {

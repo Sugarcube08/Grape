@@ -253,6 +253,45 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
                 put("provenance_json", "{}")
             }
             db.insert("external_sleep_sessions", null, cv)
+
+            val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }.format(java.util.Date(startTimeUnixMs))
+
+            val cvDaily = ContentValues().apply {
+                put("sleep_id", sleepId)
+                put("started_at", java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.format(java.util.Date(startTimeUnixMs)))
+                put("ended_at", java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.format(java.util.Date(endTimeUnixMs)))
+                put("duration_ms", endTimeUnixMs - startTimeUnixMs)
+                put("sleep_score", 85.0)
+                put("rem_minutes", remMinutes)
+                put("deep_minutes", deepMinutes)
+                put("core_minutes", coreMinutes)
+                put("awake_minutes", awakeMinutes)
+            }
+            db.insert("daily_sleep_metrics", null, cvDaily)
+
+            val cvEvent = ContentValues().apply {
+                put("metric_type", "Sleep")
+                put("value", (endTimeUnixMs - startTimeUnixMs) / (60.0 * 1000.0))
+                put("origin", "Health Connect")
+                put("confidence", 0.95)
+                put("timestamp", startTimeUnixMs)
+            }
+            db.insert("metric_events", null, cvEvent)
+
+            val cvBaseline = ContentValues().apply {
+                put("date_key", dateStr)
+                put("sleep_duration_ms", endTimeUnixMs - startTimeUnixMs)
+                put("sleep_score", 85.0)
+                put("updated_at", System.currentTimeMillis())
+            }
+            db.insertWithOnConflict("baseline_daily", null, cvBaseline, SQLiteDatabase.CONFLICT_REPLACE)
+
             Timber.d("Inserted mock sleep session: $sleepId")
         } catch (e: Exception) {
             Timber.e(e, "Error inserting mock sleep session")
@@ -276,11 +315,12 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
         try {
             db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
             val metricId = "mock-metric-" + System.currentTimeMillis()
+            val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }.format(java.util.Date(startTimeUnixMs))
             val cv = ContentValues().apply {
                 put("daily_metric_id", metricId)
-                put("date_key", java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
-                    timeZone = java.util.TimeZone.getTimeZone("UTC")
-                }.format(java.util.Date(startTimeUnixMs)))
+                put("date_key", dateStr)
                 put("timezone", "UTC")
                 put("start_time_unix_ms", startTimeUnixMs)
                 put("end_time_unix_ms", endTimeUnixMs)
@@ -293,6 +333,34 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
                 put("provenance_json", "{}")
             }
             db.insert("daily_recovery_metrics", null, cv)
+
+            val cvHrv = ContentValues().apply {
+                put("metric_type", "HRV")
+                put("value", hrv)
+                put("origin", "imported")
+                put("confidence", 0.95)
+                put("timestamp", startTimeUnixMs)
+            }
+            db.insert("metric_events", null, cvHrv)
+
+            val cvRhr = ContentValues().apply {
+                put("metric_type", "RHR")
+                put("value", restingHr)
+                put("origin", "imported")
+                put("confidence", 0.95)
+                put("timestamp", startTimeUnixMs)
+            }
+            db.insert("metric_events", null, cvRhr)
+
+            val cvBaseline = ContentValues().apply {
+                put("date_key", dateStr)
+                put("recovery_score", 78.0)
+                put("hrv_rmssd", hrv)
+                put("resting_hr", restingHr)
+                put("updated_at", System.currentTimeMillis())
+            }
+            db.insertWithOnConflict("baseline_daily", null, cvBaseline, SQLiteDatabase.CONFLICT_REPLACE)
+
             Timber.d("Inserted mock recovery metric: $metricId")
         } catch (e: Exception) {
             Timber.e(e, "Error inserting mock recovery metric")
@@ -323,9 +391,255 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
                 put("timestamp", timestamp)
             }
             db.insert("daily_stress_metrics", null, cv)
+
+            val dateStr = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }.format(java.util.Date(timestamp))
+
+            val cvEvent = ContentValues().apply {
+                put("metric_type", "Stress")
+                put("value", stressScore)
+                put("origin", "algo")
+                put("confidence", 0.90)
+                put("timestamp", timestamp)
+            }
+            db.insert("metric_events", null, cvEvent)
+
+            val cvBaseline = ContentValues().apply {
+                put("date_key", dateStr)
+                put("stress_average", stressScore)
+                put("updated_at", System.currentTimeMillis())
+            }
+            db.insertWithOnConflict("baseline_daily", null, cvBaseline, SQLiteDatabase.CONFLICT_REPLACE)
+
             Timber.d("Inserted mock stress metric: $stressScore ($state)")
         } catch (e: Exception) {
             Timber.e(e, "Error inserting mock stress metric")
+        } finally {
+            db?.close()
+        }
+    }
+
+    fun insertMockStrainMetric(
+        strainScore: Double,
+        averageHr: Double,
+        maxHr: Double,
+        calories: Int,
+        timestamp: Long
+    ) {
+        if (!BuildConfig.DEBUG) {
+            Timber.w("Rejecting mock strain metric insertion in release mode")
+            return
+        }
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            val strainId = "mock-strain-" + System.currentTimeMillis()
+            val dateKey = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+                timeZone = java.util.TimeZone.getTimeZone("UTC")
+            }.format(java.util.Date(timestamp))
+            val cv = ContentValues().apply {
+                put("strain_id", strainId)
+                put("date_key", dateKey)
+                put("strain_score", strainScore)
+                put("average_hr", averageHr)
+                put("max_hr", maxHr)
+                put("calories", calories)
+            }
+            db.insert("daily_strain_metrics", null, cv)
+
+            val cvEvent = ContentValues().apply {
+                put("metric_type", "Strain")
+                put("value", strainScore)
+                put("origin", "algo")
+                put("confidence", 0.95)
+                put("timestamp", timestamp)
+            }
+            db.insert("metric_events", null, cvEvent)
+
+            val cvBaseline = ContentValues().apply {
+                put("date_key", dateKey)
+                put("strain_average", strainScore)
+                put("updated_at", timestamp)
+            }
+            db.insertWithOnConflict("baseline_daily", null, cvBaseline, SQLiteDatabase.CONFLICT_REPLACE)
+
+            Timber.d("Inserted mock strain metric: $strainId")
+        } catch (e: Exception) {
+            Timber.e(e, "Error inserting mock strain metric")
+        } finally {
+            db?.close()
+        }
+    }
+
+    fun simulateHistoricalSyncData() {
+        if (!BuildConfig.DEBUG) return
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            
+            db.execSQL("DELETE FROM metric_events")
+            for (i in 1..1245) {
+                val cv = ContentValues().apply {
+                    put("metric_type", "HR")
+                    put("value", 60.0 + (i % 30))
+                    put("origin", "wearable")
+                    put("confidence", 0.98)
+                    put("timestamp", System.currentTimeMillis() - i * 60 * 1000)
+                }
+                db.insert("metric_events", null, cv)
+            }
+            for (i in 1..192) {
+                val cv = ContentValues().apply {
+                    put("metric_type", "HRV")
+                    put("value", 50.0 + (i % 25))
+                    put("origin", "wearable")
+                    put("confidence", 0.95)
+                    put("timestamp", System.currentTimeMillis() - i * 3600 * 1000)
+                }
+                db.insert("metric_events", null, cv)
+            }
+            for (i in 1..84) {
+                val cv = ContentValues().apply {
+                    put("metric_type", "Stress")
+                    put("value", 0.1 + (i % 10) * 0.05)
+                    put("origin", "algo")
+                    put("confidence", 0.90)
+                    put("timestamp", System.currentTimeMillis() - i * 15 * 60 * 1000)
+                }
+                db.insert("metric_events", null, cv)
+            }
+
+            db.execSQL("DELETE FROM trend_summary")
+            val metrics = listOf("HRV", "RHR", "Sleep", "Stress")
+            for (i in 1..84) {
+                val cv = ContentValues().apply {
+                    put("metric_type", metrics[i % metrics.size])
+                    put("average", 65.0 + (i % 10))
+                    put("slope", -1.5 + (i % 4) * 0.75)
+                    put("volatility", 2.0 + (i % 5) * 0.5)
+                    put("consistency", 0.7 + (i % 3) * 0.1)
+                    put("timestamp", System.currentTimeMillis() - i * 24 * 3600 * 1000)
+                }
+                db.insert("trend_summary", null, cv)
+            }
+
+            db.execSQL("DELETE FROM insights")
+            val insightMsgs = listOf(
+                "HRV trending upwards; high recovery expected.",
+                "Sleep debt accumulated. 90m additional sleep recommended.",
+                "Mild stress volatility detected in last 24h.",
+                "Consistent bedtime helps stabilize resting heart rate.",
+                "Strain is optimal; recovery is in green zone.",
+                "HRV variation indicates active stress adaptation."
+            )
+            for (i in 1..12) {
+                val cv = ContentValues().apply {
+                    put("message", insightMsgs[i % insightMsgs.size])
+                    put("confidence", 0.85 + (i % 5) * 0.02)
+                    put("importance", 0.75 + (i % 5) * 0.05)
+                    put("category", if (i % 2 == 0) "sleep" else "recovery")
+                    put("timestamp", System.currentTimeMillis() - i * 12 * 3600 * 1000)
+                }
+                db.insert("insights", null, cv)
+            }
+
+            db.execSQL("DELETE FROM daily_recovery_metrics")
+            db.execSQL("DELETE FROM daily_sleep_metrics")
+            db.execSQL("DELETE FROM daily_stress_metrics")
+            db.execSQL("DELETE FROM daily_strain_metrics")
+            db.execSQL("DELETE FROM baseline_daily")
+
+            for (i in 0..30) {
+                val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.format(java.util.Date(System.currentTimeMillis() - i.toLong() * 24 * 3600 * 1000))
+                val ts = System.currentTimeMillis() - i.toLong() * 24 * 3600 * 1000
+
+                val cvRec = ContentValues().apply {
+                    put("daily_metric_id", "rec-$i")
+                    put("date_key", date)
+                    put("timezone", "UTC")
+                    put("start_time_unix_ms", ts - 8 * 3600 * 1000)
+                    put("end_time_unix_ms", ts)
+                    put("resting_hr_bpm", 55.0 + (i % 5))
+                    put("hrv_rmssd_ms", 65.0 + (i % 15))
+                    put("respiratory_rate_rpm", 15.2)
+                    put("skin_temperature_delta_c", -0.2 + (i % 5) * 0.1)
+                    put("source_kind", "imported")
+                    put("confidence", 0.95)
+                    put("provenance_json", "{}")
+                }
+                db.insert("daily_recovery_metrics", null, cvRec)
+
+                val cvSleep = ContentValues().apply {
+                    put("sleep_id", "sleep-$i")
+                    put("started_at", date + "T22:00:00Z")
+                    put("ended_at", date + "T06:00:00Z")
+                    put("duration_ms", 8 * 3600 * 1000)
+                    put("sleep_score", 70.0 + (i % 25))
+                    put("rem_minutes", 90.0 + (i % 10))
+                    put("deep_minutes", 100.0 + (i % 15))
+                    put("core_minutes", 240.0 + (i % 30))
+                    put("awake_minutes", 30.0 + (i % 5))
+                }
+                db.insert("daily_sleep_metrics", null, cvSleep)
+
+                val cvStress = ContentValues().apply {
+                    put("stress_score", 0.25 + (i % 5) * 0.05)
+                    put("state", if (i % 3 == 0) "Medium" else "Low")
+                    put("hrv_contribution", 0.15)
+                    put("temp_contribution", 0.05)
+                    put("timestamp", ts)
+                }
+                db.insert("daily_stress_metrics", null, cvStress)
+
+                val cvStrain = ContentValues().apply {
+                    put("strain_id", "strain-$i")
+                    put("date_key", date)
+                    put("strain_score", 8.5 + (i % 8) * 1.2)
+                    put("average_hr", 110.0 + (i % 10))
+                    put("max_hr", 155.0 + (i % 15))
+                    put("calories", 1800 + i * 50)
+                }
+                db.insert("daily_strain_metrics", null, cvStrain)
+
+                if (i < 28) {
+                    val cvBaseline = ContentValues().apply {
+                        put("date_key", date)
+                        put("recovery_score", 55.0 + (i % 25))
+                        put("sleep_duration_ms", 8 * 3600 * 1000)
+                        put("sleep_score", 70.0 + (i % 25))
+                        put("hrv_rmssd", 65.0 + (i % 15))
+                        put("stress_average", 0.25 + (i % 5) * 0.05)
+                        put("strain_average", 8.5 + (i % 8) * 1.2)
+                        put("resting_hr", 55.0 + (i % 5))
+                        put("updated_at", ts)
+                    }
+                    db.insertWithOnConflict("baseline_daily", null, cvBaseline, SQLiteDatabase.CONFLICT_REPLACE)
+                }
+            }
+            
+            val cvSession = ContentValues().apply {
+                put("session_id", "demo-session-id")
+                put("status", "Completed")
+                put("bytes_downloaded", 124500)
+                put("packets_downloaded", 1245)
+                put("packets_received", 1245)
+                put("packets_parsed", 1193)
+                put("parser_errors", 52)
+                put("started_at", java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.format(java.util.Date(System.currentTimeMillis() - 600 * 1000)))
+                put("ended_at", java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply {
+                    timeZone = java.util.TimeZone.getTimeZone("UTC")
+                }.format(java.util.Date()))
+            }
+            db.insertWithOnConflict("sync_sessions", null, cvSession, SQLiteDatabase.CONFLICT_REPLACE)
+
+            Timber.d("Simulated complete Historical Sync telemetry and baselines successfully.")
+        } catch (e: Exception) {
+            Timber.e(e, "Error simulating historical sync metrics")
         } finally {
             db?.close()
         }
@@ -469,6 +783,40 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
             db?.close()
         }
         return null
+    }
+
+    fun setSyncStage(stage: String) {
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            val cv = ContentValues().apply {
+                put("key", "current_stage")
+                put("value", stage)
+            }
+            db.insertWithOnConflict("device_settings", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+            Timber.d("Sync stage set to: $stage")
+        } catch (e: Exception) {
+            Timber.e(e, "Error setting sync stage")
+        } finally {
+            db?.close()
+        }
+    }
+
+    fun setLastException(exception: String) {
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            val cv = ContentValues().apply {
+                put("key", "last_exception")
+                put("value", exception)
+            }
+            db.insertWithOnConflict("device_settings", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+            Timber.d("Last exception set to: $exception")
+        } catch (e: Exception) {
+            Timber.e(e, "Error setting last exception")
+        } finally {
+            db?.close()
+        }
     }
 
     fun saveUserProfile(displayName: String) {

@@ -13,6 +13,7 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.grape.mobile.database.DatabaseHelper
 import com.grape.mobile.ffi.GrapeRustBridge
+import com.grape.mobile.repository.DeviceRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -37,12 +38,14 @@ class HistoricalSyncWorker(
 
     private val bleManager: GrapeBleManager by inject()
     private val databaseHelper: DatabaseHelper by inject()
+    private val repository: DeviceRepository by inject()
 
     override suspend fun doWork(): Result {
         val sessionId = inputData.getString("session_id") ?: UUID.randomUUID().toString()
         try {
             val dbPath = databaseHelper.getDatabasePath()
             
+            repository.setSyncStage("Sync Initialized")
             setForegroundSafely("Preparing historical sync...")
             
             var oldestPage: Long = 0
@@ -66,6 +69,7 @@ class HistoricalSyncWorker(
             
             if (status == "QueryRange") {
                 // Send Data Range Command (opcode 34)
+                repository.setSyncStage("Querying Range")
                 Timber.d("Sending get_data_range command (34)")
                 bleManager.writeCommand(34, byteArrayOf())
                 
@@ -81,6 +85,7 @@ class HistoricalSyncWorker(
                                 newestPage = pages.second
                                 currentPage = oldestPage
                                 rangeResponseReceived = true
+                                repository.setSyncStage("Range Received")
                                 throw CancellationException("Range response received")
                             }
                         }
@@ -102,6 +107,7 @@ class HistoricalSyncWorker(
             // 3. Move pointer (opcode 33)
             status = "ReadPointer"
             updateSession(sessionId, status, 0, 0)
+            repository.setSyncStage("Read Pointer Set")
             Timber.d("Sending set_read_pointer command (33) to page $currentPage")
             val pageBytes = u32ToBytes(currentPage)
             bleManager.writeCommand(33, pageBytes)
@@ -113,6 +119,7 @@ class HistoricalSyncWorker(
             status = "Downloading"
             updateSession(sessionId, status, 0, 0)
             setForegroundSafely("Downloading historical data (0%)...")
+            repository.setSyncStage("Downloading Packets")
             Timber.d("Sending send_historical_data command (22)")
             bleManager.writeCommand(22, byteArrayOf())
             
@@ -126,6 +133,7 @@ class HistoricalSyncWorker(
                         val classification = classifyPacket(frame)
                         val timestamp = extractTimestamp(frame)
                         
+                        repository.setSyncStage("Storing Packets")
                         insertHistoricalPacketMetadata(sessionId, classification, timestamp, "historical", frame.toHexString())
                         
                         packetsDownloaded++
@@ -173,11 +181,13 @@ class HistoricalSyncWorker(
             // 5. Parsing & Persisting
             status = "Parsing"
             updateSession(sessionId, status, bytesDownloaded, packetsDownloaded)
+            repository.setSyncStage("Parsing Packets")
             setForegroundSafely("Parsing and syncing data...")
             delay(500)
             
             status = "Persisting"
             updateSession(sessionId, status, bytesDownloaded, packetsDownloaded)
+            repository.setSyncStage("Storing Metrics")
             setForegroundSafely("Persisting to database...")
             delay(500)
             
@@ -185,6 +195,7 @@ class HistoricalSyncWorker(
             status = "Completed"
             updateSession(sessionId, status, bytesDownloaded, packetsDownloaded)
             updateSessionEnded(sessionId, status)
+            repository.setSyncStage("Sync Completed")
             setForegroundSafely("Historical sync completed successfully.")
             
             return Result.success()
@@ -192,6 +203,7 @@ class HistoricalSyncWorker(
         } catch (e: CancellationException) {
             throw e
         } catch (e: Throwable) {
+            repository.setLastException(e.stackTraceToString())
             Timber.e(e, "Error running historical sync")
         }
         

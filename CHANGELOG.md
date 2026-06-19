@@ -2,12 +2,12 @@
 
 All notable changes to the Grape project will be documented in this file.
 
-## [v0.3.1-alpha] - 2026-06-19
+## [v0.3.2-beta] - 2026-06-20
 
 ### Added
-- **True Translucent Blurred Bottom Navigation Bar**: Configured [FloatingBottomBar](file:///home/sugarcube/Desktop/VGPL/Grape/app/mobile/app/src/main/java/com/grape/mobile/ui/components/FloatingBottomBar.kt) to use `RenderEffect` for API >= 31 with a custom semi-transparent overlay fallback for API 29–30, matching modern premium design patterns.
-- **Data Export Pipeline**: Completed [ExportManager](file:///home/sugarcube/Desktop/VGPL/Grape/app/mobile/app/src/main/java/com/grape/mobile/utils/ExportManager.kt) to copy `grape.sqlite` and generate JSON summaries for daily metrics, baselines, trends, insights, and device settings into a zip archive shared via the Android Sharesheet.
+- **Sync Stage Diagnostics**: Added a dedicated `SYNC DIAGNOSTICS` panel displaying real-time metrics, connection stages, and exception logs in the UI, enabling robust hardwareless validation.
 
 ### Fixed
-- **DeviceScreen Insets Layout**: Cleaned up the nested layout structure in [DeviceScreen](file:///home/sugarcube/Desktop/VGPL/Grape/app/mobile/app/src/main/java/com/grape/mobile/screens/DeviceScreen.kt) to match `DashboardScreen` and `ProfileScreen`, resolving bottom inset inconsistencies and ensuring a pixel-identical navigation bar position.
-- **Back Invocation Warning**: Added `android:enableOnBackInvokedCallback="true"` inside `AndroidManifest.xml` to align with Android 14/15 predictable back gesture behavior and remove system console warnings.
+- **Haze Frosted Blur Crash**: Resolved `IllegalArgumentException: backgroundColor not specified` crash during Compose drawing by providing a custom `HazeStyle` containing an explicit background color.
+- **Main Thread Startup Bottlenecks**: Moved heavy initialization workloads (SQLite schemas, BLE manager settings, update metadata checks) to background dispatchers, eliminating UI thread freezes.
+- **Foreground Service Compatibility**: Audited and secured Android 14/15 foreground service initialization. Added guards to prevent redundant starts and ensured startForeground is triggered immediately.

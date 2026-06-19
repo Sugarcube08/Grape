@@ -8,7 +8,9 @@ import timber.log.Timber
 class DatabaseHelper(private val context: Context) {
 
     init {
-        initializeSchema()
+        Thread {
+            initializeSchema()
+        }.start()
     }
 
     fun getDatabasePath(): String {
@@ -161,6 +163,54 @@ class DatabaseHelper(private val context: Context) {
                     display_name TEXT,
                     avatar_uri TEXT,
                     created_at INTEGER
+                );
+            """.trimIndent())
+
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS daily_sleep_metrics (
+                    sleep_id TEXT PRIMARY KEY,
+                    started_at TEXT,
+                    ended_at TEXT,
+                    duration_ms INTEGER,
+                    sleep_score REAL,
+                    rem_minutes REAL,
+                    deep_minutes REAL,
+                    core_minutes REAL,
+                    awake_minutes REAL
+                );
+            """.trimIndent())
+
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS daily_strain_metrics (
+                    strain_id TEXT PRIMARY KEY,
+                    date_key TEXT,
+                    strain_score REAL,
+                    average_hr REAL,
+                    max_hr REAL,
+                    calories INTEGER
+                );
+            """.trimIndent())
+
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS metric_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    metric_type TEXT NOT NULL,
+                    value REAL,
+                    origin TEXT,
+                    confidence REAL,
+                    timestamp INTEGER
+                );
+            """.trimIndent())
+
+            db.execSQL("""
+                CREATE TABLE IF NOT EXISTS trend_summary (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    metric_type TEXT NOT NULL,
+                    average REAL,
+                    slope REAL,
+                    volatility REAL,
+                    consistency REAL,
+                    timestamp INTEGER
                 );
             """.trimIndent())
             

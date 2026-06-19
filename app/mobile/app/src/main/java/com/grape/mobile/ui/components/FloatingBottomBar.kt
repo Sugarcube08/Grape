@@ -22,9 +22,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.asComposeRenderEffect
 import com.grape.mobile.theme.*
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.HazeStyle
 
 data class NavigationTabItem(
     val route: String,
@@ -34,43 +35,36 @@ data class NavigationTabItem(
 
 @Composable
 fun FloatingBottomBar(
+    hazeState: HazeState,
     tabs: List<NavigationTabItem>,
     currentRoute: String?,
     onTabSelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isAtLeastS = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
-    val backgroundColor = if (isAtLeastS) Color.White.copy(alpha = 0.05f) else Color.White.copy(alpha = 0.06f)
-    
-    val blurModifier = if (isAtLeastS) {
-        Modifier.graphicsLayer {
-            renderEffect = android.graphics.RenderEffect.createBlurEffect(
-                20f,
-                20f,
-                android.graphics.Shader.TileMode.CLAMP
-            ).asComposeRenderEffect()
-        }
-    } else {
-        Modifier
-    }
-
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(start = 16.dp, end = 16.dp, bottom = 24.dp)
-            .height(78.dp),
+            .padding(start = 16.dp, end = 16.dp, bottom = 20.dp)
+            .height(74.dp),
         contentAlignment = Alignment.Center
     ) {
-        // Blurred background layer
+        // Backdrop Blur background layer
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .then(blurModifier)
                 .clip(RoundedCornerShape(28.dp))
-                .background(backgroundColor)
+                .hazeChild(
+                    state = hazeState,
+                    style = HazeStyle(
+                        backgroundColor = Color(0x22131318),
+                        tint = null,
+                        blurRadius = 20.dp
+                    )
+                )
+                .background(Color(0x22131318), shape = RoundedCornerShape(28.dp))
                 .border(
                     width = 1.dp,
-                    color = Color.White.copy(alpha = 0.10f),
+                    color = Color.White.copy(alpha = 0.12f),
                     shape = RoundedCornerShape(28.dp)
                 )
         )

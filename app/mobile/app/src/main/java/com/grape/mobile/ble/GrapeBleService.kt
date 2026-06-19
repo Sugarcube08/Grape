@@ -41,6 +41,7 @@ class GrapeBleService : Service() {
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onCreate() {
+        running = true
         super.onCreate()
         
         // 1. Setup notification channel and start foreground immediately with minimal helper
@@ -307,6 +308,7 @@ class GrapeBleService : Service() {
     }
 
     override fun onDestroy() {
+        running = false
         super.onDestroy()
         serviceJob.cancel()
         Timber.d("GrapeBleService destroyed")
@@ -319,5 +321,10 @@ class GrapeBleService : Service() {
         const val ACTION_DISCONNECT = "com.grape.mobile.ACTION_DISCONNECT"
         const val ACTION_SYNC = "com.grape.mobile.ACTION_SYNC"
         const val ACTION_CONNECT_PRIMARY = "com.grape.mobile.ACTION_CONNECT_PRIMARY"
+
+        @Volatile
+        private var running = false
+
+        fun isRunning(): Boolean = running
     }
 }

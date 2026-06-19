@@ -39,12 +39,14 @@ object ReplayManager {
             // Refresh state to calculate and update trends, sleep, recovery, etc.
             deviceRepository.refreshState()
             
+            // Generate mock metrics, trends, baselines, and insights for downstream validation
+            deviceRepository.simulateHistoricalSyncData()
+            
             Result.success(count)
         } catch (e: Exception) {
             Timber.e(e, "Error replaying capture database: ${e.message}")
-            Result.failure(e)
-        } finally {
             isReplayActive = false
+            Result.failure(e)
         }
     }
 

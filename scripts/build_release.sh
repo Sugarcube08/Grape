@@ -24,7 +24,12 @@ cd "$PROJECT_ROOT/app/mobile"
 # 3. Verify built APK output
 APK_PATH="$PROJECT_ROOT/app/mobile/app/build/outputs/apk/release/app-release.apk"
 DIST_DIR="$PROJECT_ROOT/dist"
-mkdir -p "$DIST_DIR"
+# if not DIST_DIR then create it, else clear all inside that directory
+if [ ! -d "$DIST_DIR" ]; then
+    mkdir "$DIST_DIR"
+else
+    rm -f "$DIST_DIR"/*
+fi
 
 if [ -f "$APK_PATH" ]; then
     echo "=================================================="
