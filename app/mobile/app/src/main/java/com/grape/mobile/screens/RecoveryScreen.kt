@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.grape.mobile.ffi.GrapeRustBridge
+import com.grape.mobile.BuildConfig
 import com.grape.mobile.repository.DeviceRepository
 import com.grape.mobile.ui.components.*
 import com.grape.mobile.theme.*
@@ -30,6 +31,40 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.launch
+
+import org.json.JSONObject
+
+sealed class RecoveryDataState {
+    object Loading : RecoveryDataState()
+    object Unavailable : RecoveryDataState()
+    data class Available(
+        val recoveryScore: Int,
+        val recoveryState: String,
+        val hrv: Int,
+        val restingHr: Int,
+        val tempDelta: Double,
+        val sleepScore: Int,
+        val sleepDurationMins: Int,
+        val sleepNeedMins: Int,
+        val sleepDebtMins: Int,
+        val efficiency: Double,
+        val deepMins: Int,
+        val lightMins: Int,
+        val remMins: Int,
+        val awakeMins: Int,
+        val strain: Double,
+        val cardioLoad: Double,
+        val muscularLoad: Double,
+        val activeKcal: Int,
+        val steps: Int,
+        val recoveryTrendDirection: String,
+        val recoveryTrendDelta: Double,
+        val hrvTrendDirection: String,
+        val hrvTrendDelta: Double,
+        val sleepTrendDirection: String,
+        val sleepTrendDelta: Double
+    ) : RecoveryDataState()
+}
 
 @Composable
 fun RecoveryScreen(
@@ -41,17 +76,40 @@ fun RecoveryScreen(
         java.io.File(context.filesDir, "grape.sqlite").absolutePath
     }
 
-    var dataState by remember { mutableStateOf<BiometricDataState>(BiometricDataState.Loading) }
+    var dataState by remember { mutableStateOf<RecoveryDataState>(RecoveryDataState.Loading) }
 
     fun refreshData() {
         coroutineScope.launch(Dispatchers.IO) {
             try {
                 val sleep = GrapeRustBridge.computeSleepV1(actualDbPath)
                 val rec = GrapeRustBridge.computeRecoveryV0(actualDbPath)
+                val strainJson = GrapeRustBridge.computeStrain(actualDbPath)
+                
                 withContext(Dispatchers.Main) {
-                    if (sleep != null && rec != null) {
+                    if (sleep != null && rec != null && strainJson.isNotEmpty()) {
                         val durationMins = (sleep.remMinutes + sleep.deepMinutes + sleep.lightMinutes + sleep.awakeMinutes).toInt()
-                        dataState = BiometricDataState.Available(
+                        
+                        val strainObj = JSONObject(strainJson)
+                        val strainScore = strainObj.optDouble("strain_score", 0.0)
+                        val cardioLoad = strainObj.optDouble("cardio_load", 0.0)
+                        val muscularLoad = strainObj.optDouble("muscular_load", 0.0)
+                        val activeKcal = strainObj.optDouble("active_kcal", 0.0)
+                        val steps = strainObj.optLong("steps", 0L)
+                        
+                        val trendsObj = strainObj.optJSONObject("trends")
+                        val recoveryTrend = trendsObj?.optJSONObject("recovery_trend")
+                        val recDirection = recoveryTrend?.optString("direction", "FLAT") ?: "FLAT"
+                        val recDelta = recoveryTrend?.optDouble("delta", 0.0) ?: 0.0
+
+                        val hrvTrend = trendsObj?.optJSONObject("hrv_trend")
+                        val hrvDirection = hrvTrend?.optString("direction", "FLAT") ?: "FLAT"
+                        val hrvDelta = hrvTrend?.optDouble("delta", 0.0) ?: 0.0
+
+                        val sleepTrend = trendsObj?.optJSONObject("sleep_trend")
+                        val sleepDirection = sleepTrend?.optString("direction", "FLAT") ?: "FLAT"
+                        val sleepDelta = sleepTrend?.optDouble("delta", 0.0) ?: 0.0
+
+                        dataState = RecoveryDataState.Available(
                             recoveryScore = rec.recoveryScore.toInt(),
                             recoveryState = rec.recoveryState,
                             hrv = rec.hrv.toInt(),
@@ -62,17 +120,30 @@ fun RecoveryScreen(
                             sleepNeedMins = sleep.need.toInt(),
                             sleepDebtMins = sleep.debt.toInt(),
                             efficiency = sleep.efficiency,
-                            strain = 11.4,
-                            battery = 0
+                            deepMins = sleep.deepMinutes.toInt(),
+                            lightMins = sleep.lightMinutes.toInt(),
+                            remMins = sleep.remMinutes.toInt(),
+                            awakeMins = sleep.awakeMinutes.toInt(),
+                            strain = strainScore,
+                            cardioLoad = cardioLoad,
+                            muscularLoad = muscularLoad,
+                            activeKcal = activeKcal.toInt(),
+                            steps = steps.toInt(),
+                            recoveryTrendDirection = recDirection,
+                            recoveryTrendDelta = recDelta,
+                            hrvTrendDirection = hrvDirection,
+                            hrvTrendDelta = hrvDelta,
+                            sleepTrendDirection = sleepDirection,
+                            sleepTrendDelta = sleepDelta
                         )
                     } else {
-                        dataState = BiometricDataState.Unavailable
+                        dataState = RecoveryDataState.Unavailable
                     }
                 }
             } catch (e: Exception) {
                 Timber.e(e, "Error computing reports on recovery tab")
                 withContext(Dispatchers.Main) {
-                    dataState = BiometricDataState.Unavailable
+                    dataState = RecoveryDataState.Unavailable
                 }
             }
         }
@@ -108,12 +179,12 @@ fun RecoveryScreen(
             Spacer(modifier = Modifier.height(20.dp))
 
             when (val state = dataState) {
-                BiometricDataState.Loading -> {
+                RecoveryDataState.Loading -> {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(color = GrapePrimary)
                     }
                 }
-                BiometricDataState.Unavailable -> {
+                RecoveryDataState.Unavailable -> {
                     // Empty sync details screen
                     GlassCard(
                         modifier = Modifier
@@ -140,7 +211,7 @@ fun RecoveryScreen(
                         }
                     }
                 }
-                is BiometricDataState.Available -> {
+                is RecoveryDataState.Available -> {
                     // --- SECTION 1: RECOVERY ---
                     RecoveryHeaderSection("RECOVERY DIAGNOSTICS")
                     Spacer(modifier = Modifier.height(16.dp))
@@ -213,10 +284,10 @@ fun RecoveryScreen(
 
                             // Custom horizontal timeline stages block
                             val segments = listOf(
-                                SleepStageSegment("Deep", 110, SleepPurple),
-                                SleepStageSegment("Light", 250, SleepBlue),
-                                SleepStageSegment("REM", 85, GrapeAccent),
-                                SleepStageSegment("Awake", 35, StressOrange)
+                                SleepStageSegment("Deep", state.deepMins, SleepPurple),
+                                SleepStageSegment("Light", state.lightMins, SleepBlue),
+                                SleepStageSegment("REM", state.remMins, GrapeAccent),
+                                SleepStageSegment("Awake", state.awakeMins, StressOrange)
                             )
                             SleepTimeline(segments = segments)
                         }
@@ -230,13 +301,13 @@ fun RecoveryScreen(
                     ) {
                         RecoveryStatCard(
                             title = "SLEEP NEED",
-                            value = String.format("%.1fh", state.sleepNeedMins / 60.0),
+                            value = String.format(java.util.Locale.US, "%.1fh", state.sleepNeedMins / 60.0),
                             subText = "Target Sleep Duration",
                             modifier = Modifier.weight(1f)
                         )
                         RecoveryStatCard(
                             title = "SLEEP DEBT",
-                            value = "${state.sleepDebtMins.toInt()}m",
+                            value = "${state.sleepDebtMins}m",
                             subText = "Sleep Deficit Accumulated",
                             modifier = Modifier.weight(1f)
                         )
@@ -274,12 +345,12 @@ fun RecoveryScreen(
                         }
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             Text(
-                                text = "${state.strain}",
+                                text = String.format(java.util.Locale.US, "%.1f", state.strain),
                                 style = GrapeTypography.displayLarge.copy(fontSize = 54.sp, fontWeight = FontWeight.ExtraBold),
                                 color = TextPrimary
                             )
                             Text(
-                                text = "MODERATE STRAIN",
+                                text = "ATHLETIC STRAIN",
                                 style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                 color = StrainOrange,
                                 letterSpacing = 1.5.sp
@@ -295,13 +366,13 @@ fun RecoveryScreen(
                     ) {
                         RecoveryStatCard(
                             title = "CARDIO LOAD",
-                            value = "5.2",
+                            value = String.format(java.util.Locale.US, "%.1f", state.cardioLoad),
                             subText = "Heart Rate Intensity",
                             modifier = Modifier.weight(1f)
                         )
                         RecoveryStatCard(
                             title = "MUSCULAR LOAD",
-                            value = "4.8",
+                            value = String.format(java.util.Locale.US, "%.1f", state.muscularLoad),
                             subText = "Weight & Resistance",
                             modifier = Modifier.weight(1f)
                         )
@@ -313,13 +384,13 @@ fun RecoveryScreen(
                     ) {
                         RecoveryStatCard(
                             title = "ACTIVE ENERGY",
-                            value = "540 kcal",
+                            value = "${state.activeKcal} kcal",
                             subText = "Calories Burned",
                             modifier = Modifier.weight(1f)
                         )
                         RecoveryStatCard(
                             title = "TOTAL STEPS",
-                            value = "8,600",
+                            value = String.format(java.util.Locale.US, "%,d", state.steps),
                             subText = "Daily Movement",
                             modifier = Modifier.weight(1f)
                         )
@@ -327,34 +398,74 @@ fun RecoveryScreen(
 
                     Spacer(modifier = Modifier.height(40.dp))
 
-                    // --- SECTION 4: WEEKLY BIO TRENDS ---
-                    RecoveryHeaderSection("WEEKLY ANALYTICS TREND")
+                    // --- SECTION 4: PHYSIOLOGICAL TRENDS ---
+                    RecoveryHeaderSection("PHYSIOLOGICAL TRENDS")
                     Spacer(modifier = Modifier.height(16.dp))
 
                     GlassCard(modifier = Modifier.fillMaxWidth()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                            Column {
-                                Text("Recovery Score Trend", style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold), color = TextSecondary)
-                                Spacer(modifier = Modifier.height(8.dp))
-                                WeeklyHeatmap(
-                                    days = listOf("M", "T", "W", "T", "F", "S", "S"),
-                                    scores = listOf(78, 54, 88, state.recoveryScore, 0, 0, 0),
-                                    type = HeatmapType.RECOVERY
-                                )
-                            }
-                            Column {
-                                Text("Sleep Score Trend", style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold), color = TextSecondary)
-                                Spacer(modifier = Modifier.height(8.dp))
-                                WeeklyHeatmap(
-                                    days = listOf("M", "T", "W", "T", "F", "S", "S"),
-                                    scores = listOf(85, 78, 90, state.sleepScore, 0, 0, 0),
-                                    type = HeatmapType.SLEEP
-                                )
-                            }
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            TrendRow(
+                                label = "Recovery Trend",
+                                direction = state.recoveryTrendDirection,
+                                delta = state.recoveryTrendDelta,
+                                unit = "%"
+                            )
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                            TrendRow(
+                                label = "HRV Trend",
+                                direction = state.hrvTrendDirection,
+                                delta = state.hrvTrendDelta,
+                                unit = " ms"
+                            )
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.05f))
+                            TrendRow(
+                                label = "Sleep Score Trend",
+                                direction = state.sleepTrendDirection,
+                                delta = state.sleepTrendDelta,
+                                unit = "%"
+                            )
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+fun TrendRow(
+    label: String,
+    direction: String,
+    delta: Double,
+    unit: String
+) {
+    val directionIcon = when (direction.uppercase()) {
+        "UP" -> "↑"
+        "DOWN" -> "↓"
+        else -> "→"
+    }
+    val directionColor = when (direction.uppercase()) {
+        "UP" -> RecoveryGreen
+        "DOWN" -> StressRed
+        else -> TextSecondary
+    }
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(text = label, style = GrapeTypography.bodyLarge, color = TextSecondary)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = "$directionIcon ",
+                style = GrapeTypography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                color = directionColor
+            )
+            Text(
+                text = String.format(java.util.Locale.US, "%+.1f%s", delta, unit),
+                style = GrapeTypography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                color = TextPrimary
+            )
         }
     }
 }
@@ -424,9 +535,11 @@ fun NoRecoveryDataView(
                 ) {
                     Text("START HISTORICAL SYNC", style = GrapeTypography.labelLarge, color = Color.White)
                 }
-                Spacer(modifier = Modifier.height(12.dp))
-                TextButton(onClick = onInjectMockData) {
-                    Text("INJECT MOCK PHYSIOLOGICAL DATA", color = GrapeAccent, style = GrapeTypography.labelSmall)
+                if (BuildConfig.DEBUG) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextButton(onClick = onInjectMockData) {
+                        Text("INJECT MOCK PHYSIOLOGICAL DATA", color = GrapeAccent, style = GrapeTypography.labelSmall)
+                    }
                 }
             }
         }

@@ -48,3 +48,6 @@ temp/
 
 **/*.so
 docs/
+.agents
+.codex
+dist/

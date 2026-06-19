@@ -21,6 +21,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.grape.mobile.ffi.GrapeRustBridge
+import com.grape.mobile.BuildConfig
+import org.json.JSONObject
 import com.grape.mobile.repository.DeviceRepository
 import com.grape.mobile.ui.components.BackgroundContainer
 import com.grape.mobile.ui.components.GlassCard
@@ -51,13 +53,22 @@ fun SleepScreen(
     var syncProgress by remember { mutableStateOf<String?>(null) }
     var currentSessionId by remember { mutableStateOf<String?>(null) }
     var syncStartTime by remember { mutableStateOf(0L) }
+    var sleepTrendDirection by remember { mutableStateOf("FLAT") }
+    var sleepTrendDelta by remember { mutableStateOf(0.0) }
 
     fun refreshData() {
         coroutineScope.launch(Dispatchers.IO) {
             try {
                 val report = GrapeRustBridge.computeSleepV1(actualDbPath)
+                val strainJson = runCatching { GrapeRustBridge.computeStrain(actualDbPath) }.getOrNull() ?: ""
                 withContext(Dispatchers.Main) {
                     sleepReport = report
+                    if (strainJson.isNotEmpty()) {
+                        val trendsObj = JSONObject(strainJson).optJSONObject("trends")
+                        val sleepTrend = trendsObj?.optJSONObject("sleep_trend")
+                        sleepTrendDirection = sleepTrend?.optString("direction", "FLAT") ?: "FLAT"
+                        sleepTrendDelta = sleepTrend?.optDouble("delta", 0.0) ?: 0.0
+                    }
                     Timber.d("Sleep screen refreshed: score=${report?.score}")
                 }
             } catch (e: Exception) {
@@ -241,7 +252,7 @@ fun SleepScreen(
 
                 Spacer(modifier = Modifier.height(32.dp))
 
-                // Heatmap Section
+                // Trend Section
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.Start
@@ -257,11 +268,35 @@ fun SleepScreen(
                 Spacer(modifier = Modifier.height(12.dp))
 
                 GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    WeeklyHeatmap(
-                        days = listOf("M", "T", "W", "T", "F", "S", "S"),
-                        scores = listOf(85, 78, 90, report.score.toInt(), 0, 0, 0),
-                        type = HeatmapType.SLEEP
-                    )
+                    val directionIcon = when (sleepTrendDirection.uppercase()) {
+                        "UP" -> "↑"
+                        "DOWN" -> "↓"
+                        else -> "→"
+                    }
+                    val directionColor = when (sleepTrendDirection.uppercase()) {
+                        "UP" -> RecoveryGreen
+                        "DOWN" -> StressRed
+                        else -> TextSecondary
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = "Sleep Score Trend", style = GrapeTypography.bodyLarge, color = TextSecondary)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "$directionIcon ",
+                                style = GrapeTypography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                                color = directionColor
+                            )
+                            Text(
+                                text = String.format(java.util.Locale.US, "%+.1f%%", sleepTrendDelta),
+                                style = GrapeTypography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                                color = TextPrimary
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -363,9 +398,11 @@ fun NoSleepDataView(
                 ) {
                     Text("START HISTORICAL SYNC", style = GrapeTypography.labelLarge, color = Color.White)
                 }
-                Spacer(modifier = Modifier.height(12.dp))
-                TextButton(onClick = onInjectMockData) {
-                    Text("INJECT MOCK SLEEP SESSION DATA", color = GrapeAccent, style = GrapeTypography.labelSmall)
+                if (BuildConfig.DEBUG) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    TextButton(onClick = onInjectMockData) {
+                        Text("INJECT MOCK SLEEP SESSION DATA", color = GrapeAccent, style = GrapeTypography.labelSmall)
+                    }
                 }
             }
         }

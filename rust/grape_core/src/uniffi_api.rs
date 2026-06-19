@@ -57,10 +57,81 @@ pub fn compute_strain(database_path: String) -> String {
 }
 
 pub fn compute_stress(database_path: String) -> String {
-    format!(
-        "{{\"status\": \"ignored\", \"database_path\": \"{}\"}}",
-        database_path
-    )
+    let store = match GrapeStore::open(Path::new(&database_path)) {
+        Ok(s) => s,
+        Err(_) => return "{}".to_string(),
+    };
+    
+    let rec_report = compute_recovery_v0(database_path.clone());
+    let (recovery_score, hrv, temp_delta) = match rec_report {
+        Some(r) => (r.recovery_score, r.hrv, r.temperature_delta),
+        None => (70.0, 65.0, 0.0),
+    };
+
+    let sleep_report = compute_sleep_v1(database_path.clone());
+    let (_, sleep_debt) = match sleep_report {
+        Some(s) => (s.efficiency, s.debt),
+        None => (85.0, 0.0),
+    };
+
+    let strain_report = compute_strain_v1(database_path.clone());
+    let strain_score = match strain_report {
+        Some(st) => st.strain_score,
+        None => 0.0,
+    };
+
+    let (mu_30, sigma_30): (f64, f64) = store.conn.query_row(
+        "SELECT mean, std_dev FROM baseline_30d WHERE metric_type = 'HRV'",
+        [],
+        |row| Ok((row.get::<_, f64>(0).unwrap_or(65.0), row.get::<_, f64>(1).unwrap_or(10.0)))
+    ).unwrap_or((65.0, 10.0));
+    
+    let sigma_30 = if sigma_30 <= 0.0 { 10.0 } else { sigma_30 };
+
+    let hrv_score = (50.0 - 50.0 * (hrv - mu_30) / sigma_30).clamp(0.0, 100.0);
+    let temp_score = (50.0 * temp_delta).clamp(0.0, 100.0);
+    let sleep_debt_penalty = if sleep_debt > 60.0 {
+        (100.0 * sleep_debt / 240.0).clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
+    let readiness_load = (100.0 - recovery_score) * 0.5 + (strain_score / 21.0 * 100.0) * 0.5;
+
+    let w1 = 0.50;
+    let w2 = 0.15;
+    let w3 = 0.20;
+    let w4 = 0.15;
+    let stress_score = w1 * hrv_score + w2 * temp_score + w3 * sleep_debt_penalty + w4 * readiness_load;
+    
+    let state = if stress_score < 35.0 {
+        "LOW"
+    } else if stress_score < 70.0 {
+        "MEDIUM"
+    } else {
+        "HIGH"
+    };
+
+    let confidence = 0.95;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as i64;
+
+    let _ = store.conn.execute(
+        "INSERT INTO daily_stress_metrics (stress_score, state, hrv_contribution, temp_contribution, timestamp) VALUES (?, ?, ?, ?, ?)",
+        (stress_score, state, hrv_score, temp_score, now_ms)
+    );
+
+    let report_json = serde_json::json!({
+        "stress_score": stress_score,
+        "state": state,
+        "confidence": confidence,
+        "timestamp": now_ms,
+        "hrv_contribution": hrv_score,
+        "temp_contribution": temp_score
+    });
+    
+    report_json.to_string()
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]

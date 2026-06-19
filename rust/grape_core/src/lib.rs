@@ -1,7 +1,9 @@
 #![recursion_limit = "256"]
 #![allow(unsafe_attr_outside_unsafe)]
 
-
+mod insight_engine;
+mod trend_engine;
+mod provenance;
 
 pub mod activity_candidates;
 pub mod activity_identity;
@@ -50,6 +52,3 @@ pub use error::{GrapeError, GrapeResult};
 pub use uniffi_api::*;
 
 uniffi::include_scaffolding!("grape");
-
-
-

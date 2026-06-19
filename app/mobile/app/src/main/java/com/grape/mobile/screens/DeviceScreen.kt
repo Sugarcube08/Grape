@@ -1,6 +1,8 @@
 package com.grape.mobile.screens
 
 import android.bluetooth.BluetoothDevice
+import android.content.Intent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -14,6 +16,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -26,22 +32,35 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.grape.mobile.ble.BleState
 import com.grape.mobile.ble.GrapeBleManager
+import com.grape.mobile.ble.GrapeBleService
+import com.grape.mobile.cdm.CompanionAssociationManager
+import com.grape.mobile.cdm.DeviceDiagnostics
+import com.grape.mobile.cdm.AssociationState
+import com.grape.mobile.cdm.DiagnosticStatus
+import com.grape.mobile.cdm.DiagnosticItem
 import com.grape.mobile.repository.DeviceRepository
+import com.grape.mobile.repository.DeviceSettingsRepository
+import com.grape.mobile.repository.DeviceInfo
 import com.grape.mobile.ui.components.BackgroundContainer
 import com.grape.mobile.ui.components.GlassCard
 import com.grape.mobile.theme.*
 import kotlinx.coroutines.flow.collect
+import org.koin.compose.koinInject
 import java.util.UUID
 
 @Composable
 fun DeviceScreen(
     bleManager: GrapeBleManager,
-    repository: DeviceRepository
+    repository: DeviceRepository,
+    associationManager: CompanionAssociationManager = koinInject(),
+    diagnostics: DeviceDiagnostics = koinInject(),
+    settingsRepository: DeviceSettingsRepository = koinInject()
 ) {
     val context = LocalContext.current
     val bleState by bleManager.state.collectAsState()
     val uiState by repository.uiState.collectAsState()
     val discoveredDevices by bleManager.discoveredDevices.collectAsState()
+    val associationState by associationManager.state.collectAsState()
 
     var syncProgress by remember { mutableStateOf<String?>(null) }
     var currentSessionId by remember { mutableStateOf<String?>(null) }
@@ -49,6 +68,21 @@ fun DeviceScreen(
     var syncPercent by remember { mutableStateOf(0) }
     var syncBytesStr by remember { mutableStateOf("0.0 MB") }
     var syncEtaStr by remember { mutableStateOf("Calculating...") }
+
+    var showDiagnostics by remember { mutableStateOf(false) }
+    var diagnosticItems by remember { mutableStateOf<List<DiagnosticItem>>(emptyList()) }
+
+    // Fetch primary association details from DB
+    val primaryPair = remember(associationState) {
+        associationManager.getAssociations().firstOrNull()
+    }
+
+    var deviceInfo by remember { mutableStateOf<DeviceInfo?>(null) }
+    LaunchedEffect(primaryPair, uiState) {
+        deviceInfo = primaryPair?.first?.let { mac ->
+            settingsRepository.getDeviceInfo(mac)
+        }
+    }
 
     // Monitor sync progress if running
     LaunchedEffect(currentSessionId) {
@@ -115,246 +149,388 @@ fun DeviceScreen(
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                // Device Connection Hero Card
-                val statusColor = when (bleState) {
-                    BleState.Connected, BleState.Subscribed, BleState.Monitoring -> RecoveryGreen
-                    BleState.Scanning, BleState.Connecting -> GrapePrimary
-                    else -> StressRed
-                }
+                // Scrollable content containing all panels
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    // Device Connection Hero Card
+                    val statusColor = when (bleState) {
+                        BleState.Connected, BleState.Subscribed, BleState.Monitoring -> RecoveryGreen
+                        BleState.Scanning, BleState.Connecting -> GrapePrimary
+                        else -> StressRed
+                    }
 
-                GlassCard(modifier = Modifier.fillMaxWidth()) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Column {
-                            Text(
-                                text = if (bleState == BleState.Connected || bleState == BleState.Subscribed || bleState == BleState.Monitoring) "WHOOP 5.0" else "No Device Connected",
-                                style = GrapeTypography.displaySmall,
-                                color = TextPrimary
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(8.dp)
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(statusColor)
-                                )
-                                Spacer(modifier = Modifier.width(6.dp))
+                    GlassCard(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
                                 Text(
-                                    text = bleState.name.uppercase(),
-                                    style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = statusColor
+                                    text = if (bleState == BleState.Connected || bleState == BleState.Subscribed || bleState == BleState.Monitoring) {
+                                        primaryPair?.second ?: "WHOOP Strap"
+                                    } else "No Device Connected",
+                                    style = GrapeTypography.displaySmall,
+                                    color = TextPrimary
                                 )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(statusColor)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = bleState.name.uppercase(),
+                                        style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = statusColor
+                                    )
+                                }
                             }
-                        }
 
-                        if (bleState == BleState.Connected || bleState == BleState.Subscribed || bleState == BleState.Monitoring) {
-                            Button(
-                                onClick = { bleManager.disconnect() },
-                                colors = ButtonDefaults.buttonColors(containerColor = StressRed.copy(alpha = 0.8f)),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Text("DISCONNECT", color = Color.White, style = GrapeTypography.labelLarge, fontWeight = FontWeight.Bold)
+                            if (bleState == BleState.Connected || bleState == BleState.Subscribed || bleState == BleState.Monitoring) {
+                                Button(
+                                    onClick = { bleManager.disconnect() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = StressRed.copy(alpha = 0.8f)),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text("DISCONNECT", color = Color.White, style = GrapeTypography.labelLarge, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
-                }
 
-                Spacer(modifier = Modifier.height(20.dp))
-
-                // Scan results display
-                if (bleState == BleState.Scanning || bleState == BleState.Discovered) {
+                    // 1. Companion Device Section
                     Text(
-                        text = "DISCOVERED DEVICES",
+                        text = "COMPANION DEVICE MANAGER",
                         style = GrapeTypography.labelSmall,
                         color = TextSecondary,
                         letterSpacing = 1.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(bottom = 10.dp)
+                        fontWeight = FontWeight.Bold
                     )
 
-                    if (discoveredDevices.isEmpty()) {
-                        GlassCard(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(120.dp),
-                            backgroundColor = Color.White.copy(alpha = 0.03f)
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxSize(),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                CircularProgressIndicator(color = GrapePrimary, modifier = Modifier.size(24.dp))
+                    GlassCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            if (primaryPair != null) {
+                                // Associated device info
+                                Text("Associated Companion", style = GrapeTypography.titleLarge, color = TextPrimary)
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text("Searching for WHOOP straps...", style = GrapeTypography.bodyMedium, color = TextSecondary)
-                            }
-                        }
-                    } else {
-                        LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            items(discoveredDevices) { device ->
-                                GlassCard(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable { bleManager.connect(device.address) },
-                                    cornerRadius = 16.dp,
-                                    backgroundColor = Color.White.copy(alpha = 0.04f)
+                                
+                                HardwareRow(label = "Device Name", value = primaryPair.second)
+                                HardwareRow(label = "MAC Address", value = primaryPair.first)
+                                HardwareRow(label = "Association State", value = "Associated")
+                                
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column {
-                                            Text(
-                                                text = device.name ?: "Unknown WHOOP",
-                                                style = GrapeTypography.titleLarge,
-                                                color = TextPrimary
-                                            )
-                                            Text(
-                                                text = device.address,
-                                                style = GrapeTypography.bodyMedium,
-                                                color = TextSecondary
-                                            )
-                                        }
-                                        Text(
-                                            text = "PAIR",
-                                            color = GrapeAccent,
-                                            style = GrapeTypography.labelLarge,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // Device stats & sync progress
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        // Sync Progress Card
-                        Text(
-                            text = "HISTORICAL DATA SYNC",
-                            style = GrapeTypography.labelSmall,
-                            color = TextSecondary,
-                            letterSpacing = 1.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        GlassCard(modifier = Modifier.fillMaxWidth()) {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                if (currentSessionId != null) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text("Sync Progress", style = GrapeTypography.titleLarge, color = TextPrimary)
-                                        Text("$syncPercent%", style = GrapeTypography.displayMedium, color = GrapeAccent)
-                                    }
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    LinearProgressIndicator(
-                                        progress = { syncPercent / 100f },
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .height(8.dp)
-                                            .clip(RoundedCornerShape(4.dp)),
-                                        color = GrapeAccent,
-                                        trackColor = Color.White.copy(alpha = 0.05f)
-                                    )
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween
-                                    ) {
-                                        SyncStatDetail(label = "Downloaded", value = syncBytesStr)
-                                        SyncStatDetail(label = "Packets", value = "${uiState.packetsReceived}")
-                                        SyncStatDetail(label = "ETA", value = syncEtaStr)
-                                    }
-                                } else {
-                                    // Inactive state displays instructions
-                                    Column(modifier = Modifier.fillMaxWidth()) {
-                                        Text("No Sync Session", style = GrapeTypography.headlineMedium, color = TextPrimary)
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text("Connect a wearable to synchronize history.", style = GrapeTypography.bodyMedium, color = TextSecondary)
-                                    }
-                                }
-
-                                if (currentSessionId == null && (bleState == BleState.Connected || bleState == BleState.Subscribed || bleState == BleState.Monitoring)) {
-                                    Spacer(modifier = Modifier.height(16.dp))
                                     Button(
                                         onClick = {
-                                            val newSessionId = UUID.randomUUID().toString()
-                                            syncStartTime = System.currentTimeMillis()
-                                            currentSessionId = newSessionId
-                                            repository.beginHistoricalSync(context, newSessionId)
+                                            val intent = Intent(context, GrapeBleService::class.java).apply {
+                                                action = GrapeBleService.ACTION_CONNECT_PRIMARY
+                                            }
+                                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                                context.startForegroundService(intent)
+                                            } else {
+                                                context.startService(intent)
+                                            }
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = GrapePrimary),
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Text("RECONNECT", color = Color.White, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = {
+                                            associationManager.disassociate(primaryPair.first)
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = StressRed.copy(alpha = 0.2f)),
+                                        modifier = Modifier.weight(1f),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Text("FORGET DEVICE", color = StressRed, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            } else {
+                                // Unassociated view
+                                Text("No Companion Associated", style = GrapeTypography.titleLarge, color = TextPrimary)
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text("Associate Grape with WHOOP to enable seamless background syncing and survive aggressive battery management policies.", style = GrapeTypography.bodyMedium, color = TextSecondary)
+                                
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                if (discoveredDevices.isNotEmpty()) {
+                                    Text("DISCOVERED DEVICES", style = GrapeTypography.labelSmall, color = TextSecondary, letterSpacing = 1.sp)
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    discoveredDevices.forEach { device ->
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(Color.White.copy(alpha = 0.05f))
+                                                .padding(12.dp),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column {
+                                                Text(device.name ?: "Unknown", style = GrapeTypography.bodyLarge, color = TextPrimary, fontWeight = FontWeight.Bold)
+                                                Text(device.address, style = GrapeTypography.bodyMedium, color = TextSecondary)
+                                            }
+                                            Button(
+                                                onClick = {
+                                                    associationManager.associateDeviceDirectly(device.address, device.name ?: "WHOOP Device")
+                                                    val intent = Intent(context, GrapeBleService::class.java).apply {
+                                                        action = GrapeBleService.ACTION_CONNECT_PRIMARY
+                                                    }
+                                                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                                        context.startForegroundService(intent)
+                                                    } else {
+                                                        context.startService(intent)
+                                                    }
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = GrapeAccent),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text("SELECT", color = Color.White, style = GrapeTypography.labelMedium, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                    }
+                                }
+
+                                if (bleState == BleState.Scanning) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(16.dp),
+                                            color = GrapePrimary,
+                                            strokeWidth = 2.dp
+                                        )
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("Scanning for WHOOP straps...", style = GrapeTypography.bodyMedium, color = TextSecondary)
+                                    }
+                                } else {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Button(
+                                        onClick = {
+                                            bleManager.scan()
                                         },
                                         colors = ButtonDefaults.buttonColors(containerColor = GrapePrimary),
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(12.dp)
                                     ) {
-                                        Text("SYNC HISTORY", color = Color.White, style = GrapeTypography.labelLarge, fontWeight = FontWeight.Bold)
+                                        Text("SCAN FOR DEVICES", color = Color.White, style = GrapeTypography.labelLarge, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Button(
+                                onClick = {
+                                    diagnosticItems = diagnostics.runDiagnostics()
+                                    showDiagnostics = true
+                                },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = 0.05f)),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Text("RUN DIAGNOSTICS", color = TextPrimary, style = GrapeTypography.labelLarge, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+
+                    // 2. Diagnostics Results (Animated Panel)
+                    AnimatedVisibility(visible = showDiagnostics) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "DIAGNOSTICS REPORT",
+                                    style = GrapeTypography.labelSmall,
+                                    color = TextSecondary,
+                                    letterSpacing = 1.5.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                IconButton(onClick = { showDiagnostics = false }) {
+                                    Icon(imageVector = Icons.Default.Close, contentDescription = "Close Diagnostics", tint = TextSecondary)
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            GlassCard(modifier = Modifier.fillMaxWidth()) {
+                                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    diagnosticItems.forEach { item ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(text = item.name, style = GrapeTypography.bodyLarge, color = TextPrimary, fontWeight = FontWeight.Bold)
+                                                if (item.details.isNotEmpty()) {
+                                                    Text(text = item.details, style = GrapeTypography.bodySmall, color = TextSecondary)
+                                                }
+                                            }
+                                            
+                                            when (item.status) {
+                                                DiagnosticStatus.PASS -> {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Icon(imageVector = Icons.Default.CheckCircle, contentDescription = "Pass", tint = RecoveryGreen, modifier = Modifier.size(20.dp))
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("PASS", color = RecoveryGreen, style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                                                    }
+                                                }
+                                                DiagnosticStatus.WARN -> {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Icon(imageVector = Icons.Default.Warning, contentDescription = "Warning", tint = GrapeAccent, modifier = Modifier.size(20.dp))
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("WARN", color = GrapeAccent, style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                                                    }
+                                                }
+                                                DiagnosticStatus.FAIL -> {
+                                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                                        Icon(imageVector = Icons.Default.Info, contentDescription = "Fail", tint = StressRed, modifier = Modifier.size(20.dp))
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("FAIL", color = StressRed, style = GrapeTypography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
+                    }
 
-                        Spacer(modifier = Modifier.height(24.dp))
+                    // 3. Historical Sync Card
+                    Text(
+                        text = "HISTORICAL DATA SYNC",
+                        style = GrapeTypography.labelSmall,
+                        color = TextSecondary,
+                        letterSpacing = 1.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
 
-                        // Strap Metrics Card
-                        Text(
-                            text = "HARDWARE & PERFORMANCE",
-                            style = GrapeTypography.labelSmall,
-                            color = TextSecondary,
-                            letterSpacing = 1.5.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-
-                        GlassCard(modifier = Modifier.fillMaxWidth()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                                HardwareRow(label = "Battery Level", value = "${uiState.batteryPercent}%")
-                                HardwareRow(label = "Firmware Version", value = "41.17")
-                                HardwareRow(label = "Hardware Model", value = "WHOOP Band 5.0")
-                                HardwareRow(label = "Parsed Packets", value = "${uiState.packetsReceived}")
-                                HardwareRow(label = "Parsed Frames", value = "${uiState.framesParsed}")
-                                HardwareRow(label = "Last Connection", value = "Just now")
+                    GlassCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            if (currentSessionId != null) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Sync Progress", style = GrapeTypography.titleLarge, color = TextPrimary)
+                                    Text("$syncPercent%", style = GrapeTypography.displayMedium, color = GrapeAccent)
+                                }
+                                Spacer(modifier = Modifier.height(12.dp))
+                                LinearProgressIndicator(
+                                    progress = { syncPercent / 100f },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(8.dp)
+                                        .clip(RoundedCornerShape(4.dp)),
+                                    color = GrapeAccent,
+                                    trackColor = Color.White.copy(alpha = 0.05f)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    SyncStatDetail(label = "Downloaded", value = syncBytesStr)
+                                    SyncStatDetail(label = "Packets", value = "${uiState.packetsReceived}")
+                                    SyncStatDetail(label = "ETA", value = syncEtaStr)
+                                }
+                            } else {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Text("No Sync Session", style = GrapeTypography.headlineMedium, color = TextPrimary)
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text("Connect a wearable to synchronize history.", style = GrapeTypography.bodyMedium, color = TextSecondary)
+                                }
                             }
+
+                            if (currentSessionId == null && (bleState == BleState.Connected || bleState == BleState.Subscribed || bleState == BleState.Monitoring)) {
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Button(
+                                    onClick = {
+                                        val newSessionId = UUID.randomUUID().toString()
+                                        syncStartTime = System.currentTimeMillis()
+                                        currentSessionId = newSessionId
+                                        repository.beginHistoricalSync(context, newSessionId)
+                                    },
+                                    colors = ButtonDefaults.buttonColors(containerColor = GrapePrimary),
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text("SYNC HISTORY", color = Color.White, style = GrapeTypography.labelLarge, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    // 4. Hardware Card
+                    Text(
+                        text = "HARDWARE & PERFORMANCE",
+                        style = GrapeTypography.labelSmall,
+                        color = TextSecondary,
+                        letterSpacing = 1.5.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+
+                    GlassCard(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            HardwareRow(label = "Manufacturer", value = deviceInfo?.manufacturer ?: "--")
+                            HardwareRow(label = "Serial Number", value = deviceInfo?.serialNumber ?: "--")
+                            HardwareRow(label = "Hardware Revision", value = deviceInfo?.hardwareRevision ?: "--")
+                            HardwareRow(label = "Firmware Version", value = deviceInfo?.firmwareRevision ?: "--")
+                            HardwareRow(label = "Battery Level", value = deviceInfo?.batteryLevel?.let { "$it%" } ?: "${uiState.batteryPercent}%")
+                            HardwareRow(label = "Parsed Packets", value = "${uiState.packetsReceived}")
+                            HardwareRow(label = "Parsed Frames", value = "${uiState.framesParsed}")
                         }
                     }
                 }
             }
 
-            // FAB for Scan (in bottom right corner)
-            FloatingActionButton(
-                onClick = {
-                    if (bleState == BleState.Scanning) {
-                        bleManager.stopScan()
-                    } else {
-                        bleManager.scan()
-                    }
-                },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(bottom = 100.dp, end = 20.dp), // Adjust for floating bar spacing
-                containerColor = GrapePrimary,
-                contentColor = Color.White,
-                shape = RoundedCornerShape(16.dp)
-            ) {
-                Icon(
-                    imageVector = if (bleState == BleState.Scanning) Icons.Default.Refresh else Icons.Default.Search,
-                    contentDescription = "Scan Toggle"
-                )
+            // Fallback BLE Scanner FAB
+            if (bleState == BleState.Scanning || bleState == BleState.Discovered || bleState == BleState.Idle) {
+                FloatingActionButton(
+                    onClick = {
+                        if (bleState == BleState.Scanning) {
+                            bleManager.stopScan()
+                        } else {
+                            bleManager.scan()
+                        }
+                    },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(bottom = 100.dp, end = 20.dp), // Adjust for floating bar spacing
+                    containerColor = GrapePrimary,
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(16.dp)
+                ) {
+                    Icon(
+                        imageVector = if (bleState == BleState.Scanning) Icons.Default.Refresh else Icons.Default.Search,
+                        contentDescription = "Scan Toggle"
+                    )
+                }
             }
         }
     }

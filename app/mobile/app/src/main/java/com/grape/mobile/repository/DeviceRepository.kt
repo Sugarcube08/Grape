@@ -6,6 +6,7 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.work.*
 import com.grape.mobile.database.DatabaseHelper
 import com.grape.mobile.ffi.GrapeRustBridge
+import com.grape.mobile.BuildConfig
 import com.grape.mobile.ble.HistoricalSyncWorker
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
@@ -32,6 +33,26 @@ data class DeviceUiState(
     val batteryPercent: Int = 0,
     val packetsReceived: Int = 0,
     val framesParsed: Int = 0
+)
+
+data class UserProfile(
+    val displayName: String,
+    val createdAt: Long
+)
+
+data class DbDiagnostics(
+    val path: String,
+    val size: String,
+    val packets: Long,
+    val sleepSessions: Long,
+    val recoveryMetrics: Long
+)
+
+data class ConnectedDevice(
+    val name: String,
+    val status: String,
+    val battery: Int,
+    val lastSync: String
 )
 
 class DeviceRepository(private val databaseHelper: DatabaseHelper) {
@@ -184,6 +205,10 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
         coreMinutes: Double,
         awakeMinutes: Double
     ) {
+        if (!BuildConfig.DEBUG) {
+            Timber.w("Rejecting mock sleep session insertion in release mode")
+            return
+        }
         var db: SQLiteDatabase? = null
         try {
             db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
@@ -226,6 +251,10 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
         hrv: Double,
         tempDelta: Double
     ) {
+        if (!BuildConfig.DEBUG) {
+            Timber.w("Rejecting mock recovery metric insertion in release mode")
+            return
+        }
         var db: SQLiteDatabase? = null
         try {
             db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
@@ -250,6 +279,173 @@ class DeviceRepository(private val databaseHelper: DatabaseHelper) {
             Timber.d("Inserted mock recovery metric: $metricId")
         } catch (e: Exception) {
             Timber.e(e, "Error inserting mock recovery metric")
+        } finally {
+            db?.close()
+        }
+    }
+
+    fun getUserProfile(context: Context): UserProfile {
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            db.rawQuery("SELECT display_name, created_at FROM user_profile LIMIT 1", null).use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val displayName = cursor.getString(0)
+                    val createdAt = cursor.getLong(1)
+                    return UserProfile(displayName, createdAt)
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error querying user profile")
+        } finally {
+            db?.close()
+        }
+
+        // Priority 2: Device owner name / Bluetooth name
+        val deviceName = try {
+            android.provider.Settings.Global.getString(context.contentResolver, android.provider.Settings.Global.DEVICE_NAME)
+                ?: (context.getSystemService(Context.BLUETOOTH_SERVICE) as? android.bluetooth.BluetoothManager)?.adapter?.name
+        } catch (e: Exception) {
+            null
+        }
+
+        val defaultName = deviceName ?: "Athlete"
+        val defaultCreatedAt = 1780272000000L // Jun 2026
+        return UserProfile(defaultName, defaultCreatedAt)
+    }
+
+    fun getRecoveryStreak(): Int {
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            db.rawQuery("SELECT resting_hr_bpm, hrv_rmssd_ms FROM daily_recovery_metrics ORDER BY start_time_unix_ms DESC", null).use { cursor ->
+                var streak = 0
+                while (cursor.moveToNext()) {
+                    val restingHr = cursor.getDouble(0)
+                    val hrv = cursor.getDouble(1)
+                    val score = (70.0 + (hrv - 65.0) * 0.4 + (60.0 - restingHr) * 2.0).coerceIn(0.0, 100.0)
+                    if (score >= 67.0) {
+                        streak++
+                    } else {
+                        break
+                    }
+                }
+                return streak
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error calculating recovery streak")
+        } finally {
+            db?.close()
+        }
+        return 0
+    }
+
+    fun getDbDiagnostics(context: Context): DbDiagnostics {
+        val file = java.io.File(dbPath)
+        val sizeStr = if (file.exists()) {
+            android.text.format.Formatter.formatFileSize(context, file.length())
+        } else {
+            "0 B"
+        }
+
+        var packets = 0L
+        var sleepSessions = 0L
+        var recoveryMetrics = 0L
+
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            db.rawQuery("SELECT COUNT(*) FROM historical_packets", null).use { cursor ->
+                if (cursor.moveToFirst()) packets = cursor.getLong(0)
+            }
+            db.rawQuery("SELECT COUNT(*) FROM external_sleep_sessions", null).use { cursor ->
+                if (cursor.moveToFirst()) sleepSessions = cursor.getLong(0)
+            }
+            db.rawQuery("SELECT COUNT(*) FROM daily_recovery_metrics", null).use { cursor ->
+                if (cursor.moveToFirst()) recoveryMetrics = cursor.getLong(0)
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error querying DB diagnostics")
+        } finally {
+            db?.close()
+        }
+
+        return DbDiagnostics(
+            path = file.absolutePath,
+            size = sizeStr,
+            packets = packets,
+            sleepSessions = sleepSessions,
+            recoveryMetrics = recoveryMetrics
+        )
+    }
+
+    fun connectedDevice(): ConnectedDevice? {
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            db.rawQuery("SELECT mac, name FROM companion_devices LIMIT 1", null).use { compCursor ->
+                if (compCursor.moveToFirst()) {
+                    val mac = compCursor.getString(0)
+                    val compName = compCursor.getString(1) ?: "WHOOP Strap"
+
+                    var battery = 0
+                    var lastSeen = 0L
+                    db.rawQuery("SELECT battery_level, last_seen FROM device_info WHERE mac = ?", arrayOf(mac)).use { infoCursor ->
+                        if (infoCursor.moveToFirst()) {
+                            battery = infoCursor.getInt(0)
+                            lastSeen = infoCursor.getLong(1)
+                        }
+                    }
+
+                    val connectionState = uiState.value.connectionState
+                    val batteryState = if (battery > 0) battery else uiState.value.batteryPercent
+
+                    val syncTimeText = if (lastSeen > 0) {
+                        val diffMs = System.currentTimeMillis() - lastSeen
+                        val diffMin = diffMs / 1000 / 60
+                        if (diffMin < 1) "Just now" else "${diffMin}m ago"
+                    } else {
+                        "Never"
+                    }
+
+                    return ConnectedDevice(
+                        name = compName,
+                        status = connectionState,
+                        battery = batteryState,
+                        lastSync = syncTimeText
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error querying connected companion device")
+        } finally {
+            db?.close()
+        }
+        return null
+    }
+
+    fun saveUserProfile(displayName: String) {
+        var db: SQLiteDatabase? = null
+        try {
+            db = SQLiteDatabase.openOrCreateDatabase(dbPath, null)
+            val cv = ContentValues().apply {
+                put("id", 1)
+                put("display_name", displayName)
+                
+                var exists = false
+                db.rawQuery("SELECT created_at FROM user_profile WHERE id = 1", null).use { cursor ->
+                    if (cursor.moveToFirst()) {
+                        exists = true
+                    }
+                }
+                if (!exists) {
+                    put("created_at", System.currentTimeMillis())
+                }
+            }
+            db.insertWithOnConflict("user_profile", null, cv, SQLiteDatabase.CONFLICT_REPLACE)
+            Timber.d("Saved user profile displayName: $displayName")
+        } catch (e: Exception) {
+            Timber.e(e, "Error saving user profile")
         } finally {
             db?.close()
         }

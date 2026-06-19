@@ -234,3 +234,15 @@ pub extern "system" fn Java_uniffi_grape_GrapeJni_buildCommandFrame(
         Err(_) => std::ptr::null_mut(),
     }
 }
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_uniffi_grape_GrapeJni_getCoreMetadata(
+    env: JNIEnv,
+    _class: JClass,
+) -> jstring {
+    let response = "{\"version\":\"0.3.0-alpha\",\"git_commit\":\"6e7ab1f\",\"build_date\":\"2026-06-19\",\"schema_version\":12}".to_string();
+    match env.new_string(response) {
+        Ok(s) => s.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}

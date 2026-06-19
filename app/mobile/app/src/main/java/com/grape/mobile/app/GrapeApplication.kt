@@ -5,6 +5,10 @@ import com.grape.mobile.database.DatabaseHelper
 import com.grape.mobile.ble.GrapeBleManager
 import com.grape.mobile.repository.DeviceRepository
 import com.grape.mobile.repository.UpdateRepository
+import com.grape.mobile.cdm.AssociationRepository
+import com.grape.mobile.cdm.CompanionAssociationManager
+import com.grape.mobile.cdm.DeviceDiagnostics
+import com.grape.mobile.repository.DeviceSettingsRepository
 import org.koin.android.ext.koin.androidContext
 import org.koin.android.ext.koin.androidLogger
 import org.koin.core.context.startKoin
@@ -14,7 +18,6 @@ import timber.log.Timber
 
 class GrapeApplication : Application() {
     override fun onCreate() {
-        System.setProperty("uniffi.component.grape.libraryOverride", "grape_core")
         super.onCreate()
         
         Timber.plant(Timber.DebugTree())
@@ -37,6 +40,9 @@ class GrapeApplication : Application() {
 
 val databaseModule = module {
     single { DatabaseHelper(androidContext()) }
+    single { AssociationRepository(get()) }
+    single { DeviceSettingsRepository(get()) }
+    single { DeviceDiagnostics(androidContext(), get()) }
 }
 
 val rustModule = module {
@@ -44,7 +50,8 @@ val rustModule = module {
 }
 
 val bleModule = module {
-    single { GrapeBleManager(androidContext(), get()) }
+    single { GrapeBleManager(androidContext(), get(), get()) }
+    single { CompanionAssociationManager(androidContext(), get()) }
 }
 
 val updateModule = module {

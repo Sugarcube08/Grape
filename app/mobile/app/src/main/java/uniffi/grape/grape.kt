@@ -76,6 +76,8 @@ fun buildCommandFrame(sequence: UByte, command: UByte, data: List<UByte>): List<
     return byteArray.map { it.toUByte() }
 }
 
+fun getCoreMetadata(): String = GrapeJni.getCoreMetadata()
+
 object GrapeJni {
     init {
         System.loadLibrary("grape_core")
@@ -87,6 +89,7 @@ object GrapeJni {
     external fun computeStress(databasePath: String): String
     external fun insertPacket(databasePath: String, frameHex: String, deviceType: String): String
     external fun getDeviceState(databasePath: String): String
+    external fun getCoreMetadata(): String
     
     external fun jniComputeSleepV1(databasePath: String): String?
     external fun sleepSummary(databasePath: String): String
